@@ -1,0 +1,14 @@
+# Layered over docker-compose.yml by ./scripts/test.sh e2e: the home finance agent writes a canned
+# report (HFM_E2E) and amex-agent classifies merchants by its keyword table (its e2e profile), so
+# the review's categories and report are deterministic and need no API key, and the agent starts
+# on the empty, writable folder test.sh creates rather than the actual statements in
+# AMEX_STATEMENTS_DIR; scripts/e2e/run_review.py loads amex-agent's test statement into it.
+services:
+  manager:
+    environment:
+      HFM_E2E: "true"
+  amex-agent:
+    environment:
+      SPRING_PROFILES_ACTIVE: e2e
+    volumes:
+      - ${E2E_STATEMENTS_DIR:?run through ./scripts/test.sh e2e}:/statements

@@ -1,0 +1,104 @@
+# The home finance agent, its database and amex-agent built from the sibling Java repo. The
+# scripts export backend/.env, AMEX_AGENT_DIR and AMEX_STATEMENTS_DIR included, before calling
+# compose; relative paths resolve from this repo's root.
+x-manager-build: &manager-build
+  context: .
+  dockerfile: backend/Dockerfile
+
+x-manager-env-file: &manager-env-file
+  - path: ./backend/.env
+    required: true
+
+# In-network addresses override the host-oriented values of backend/.env. Links the page opens in
+# a browser need a host address instead: AMEX_AGENT_BROWSER_URL when set, else AMEX_AGENT_URL as
+# the scripts export it from backend/.env.
+x-manager-env: &manager-env
+  DATABASE_URL: postgresql+psycopg://hfm:hfm@db:5432/hfm
+  AMEX_AGENT_URL: http://amex-agent:8020
+  AMEX_AGENT_BROWSER_URL: ${AMEX_AGENT_BROWSER_URL:-${AMEX_AGENT_URL:?set it in backend/.env}}
+  LANGGRAPH_STRICT_MSGPACK: "true"
+
+services:
+  db:
+    image: postgres:16
+    deploy: { resources: { limits: { memory: 256M } } }
+    environment:
+      POSTGRES_USER: hfm
+      POSTGRES_PASSWORD: hfm
+      POSTGRES_DB: hfm
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - hfm_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hfm -d hfm"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+
+  migrate:
+    build: *manager-build
+    image: hfm-manager:local
+    command: alembic upgrade head
+    env_file: *manager-env-file
+    environment: *manager-env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # The remote card agent. Its card must advertise the address the home finance agent can reach,
+  # hence APP_AGENT_URL. The statements folder is a host bind mount that the agent's statements page
+  # writes uploads into, so it is writable and the process runs as the host user who owns it.
+  amex-agent:
+    build:
+      context: ${AMEX_AGENT_DIR:?set AMEX_AGENT_DIR or run through ./scripts/start.sh}
+    image: amex-agent:local
+    user: "${HOST_UID:?run through ./scripts/start.sh}:${HOST_GID:?run through ./scripts/start.sh}"
+    deploy: { resources: { limits: { memory: 768M } } }
+    env_file:
+      - path: ${AMEX_AGENT_DIR:?set AMEX_AGENT_DIR or run through ./scripts/start.sh}/.env
+        required: true
+    # The agent's own .env may pick another SERVER_PORT for its standalone runs; here the
+    # container always listens on 8020.
+    environment:
+      SERVER_PORT: 8020
+      APP_AGENT_URL: http://amex-agent:8020
+      APP_STATEMENTS_DIR: /statements
+    volumes:
+      - ${AMEX_STATEMENTS_DIR:?set AMEX_STATEMENTS_DIR in backend/.env}:/statements
+    ports:
+      - "8020:8020"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8020/actuator/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  manager:
+    build: *manager-build
+    image: hfm-manager:local
+    # The app ends its event streams on SIGTERM; the graceful timeout is a backstop.
+    command: >-
+      uvicorn hfm.platform.app:create_app --factory --host 0.0.0.0 --port 8010
+      --timeout-graceful-shutdown 5
+    env_file: *manager-env-file
+    environment: *manager-env
+    deploy: { resources: { limits: { memory: 512M } } }
+    ports:
+      - "8010:8010"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      amex-agent:
+        condition: service_healthy
+
+volumes:
+  hfm_pgdata:

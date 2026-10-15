@@ -1,0 +1,71 @@
+:root {
+  --bg: #fafafa;
+  --fg: #1d1d1f;
+  --muted: #6b6b70;
+  --line: #d9d9de;
+  --accent: #2563eb;
+  --bad: #c62828;
+  --unsure-bg: #fff176;
+  /* Categorical palette for the spending pie, in slot order; slices past the last slot share
+     --series-rest. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #6250d6;
+  --series-rest: #a3a2a8;
+  font-family: system-ui, sans-serif;
+}
+
+body { margin: 0; background: var(--bg); color: var(--fg); }
+main { max-width: 56rem; margin: 0 auto; padding: 1rem; }
+section { margin-top: 1.5rem; }
+button { padding: 0.4rem 0.9rem; margin-right: 0.4rem; cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+button.chosen { background: var(--accent); color: white; }
+.month-picker { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end; }
+.month-picker p { flex-basis: 100%; margin: 0; }
+.month-picker label { display: grid; gap: 0.2rem; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: start; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--line); }
+/* Hebrew text keeps its own direction but lines up under its column heading. */
+td[dir="auto"] { text-align: left; }
+.feed { padding-inline-start: 1.2rem; max-height: 12rem; overflow-y: auto; }
+.feed-time { color: var(--muted); font-size: 0.8em; }
+.question { margin: 0.75rem 0 2rem; }
+.question-name { margin-bottom: 0.5em; }
+.question-rows { margin-bottom: 0.5rem; font-size: 0.9em; overflow-x: auto; }
+.totals { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; }
+.totals-pie { flex: 1 1 16rem; min-width: 0; }
+.totals-legend { flex: 1 1 16rem; list-style: none; margin: 0; padding: 0; }
+.totals-legend li { display: flex; gap: 0.5rem; align-items: center; padding: 0.2rem 0; }
+.totals-legend li.over { color: var(--bad); font-weight: 600; }
+.chip { width: 0.75rem; height: 0.75rem; border-radius: 0.2rem; flex: none; }
+.chart-tooltip { background: var(--bg); border: 1px solid var(--line); padding: 0.3rem 0.5rem; }
+.muted { color: var(--muted); }
+.notice { background: #fff6dd; border: 1px solid #e6cf85; padding: 0.5rem 0.75rem; }
+.error { color: var(--bad); }
+.table-scroll { overflow-x: auto; }
+/* The raw transactions keep one line per row; only a long merchant name wraps. */
+.transactions { font-size: 0.85em; }
+.transactions th, .transactions td { white-space: nowrap; }
+.transactions td.merchant { white-space: normal; }
+.transactions select { font-size: inherit; }
+/* A card agent's confidence below high is flagged; low is also highlighted. */
+.confidence-medium, .confidence-low { color: var(--bad); }
+.confidence-low { background: var(--unsure-bg); }
+.failure { background: var(--bad); color: white; padding: 0.75rem 1rem; font-weight: 600; }
+.report { white-space: pre-wrap; font-family: inherit; }
+/* A section heading that folds its body; the button keeps the heading's look. */
+.disclosure { all: unset; cursor: pointer; }
+/* Headings and legend entries that pick what the raw transactions show keep their text look. */
+.heading-button, .legend-button { all: unset; cursor: pointer; }
+.heading-button:focus-visible, .legend-button:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.legend-button[aria-pressed="true"] { font-weight: 700; text-decoration: underline; }
+.disclosure:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.disclosure::before { content: "▾ "; }
+.disclosure[aria-expanded="false"]::before { content: "▸ "; }
