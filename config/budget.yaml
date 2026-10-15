@@ -1,0 +1,10 @@
+currency: ILS
+limits:
+  groceries: 200
+  dining: 200
+  transport: 200
+  utilities: 4000
+  housing: 2250
+  health: 400
+  shopping: 200
+  entertainment: 450

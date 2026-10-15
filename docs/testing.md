@@ -1,0 +1,167 @@
+# Testing
+
+What each layer of tests proves, and how to run it.
+
+**Contents:** [Running](#running) · [Backend](#backend) · [Frontend](#frontend) ·
+[End to end](#end-to-end) · [CI](#ci)
+
+## Running
+
+```bash
+./scripts/test.sh                  # backend + frontend
+./scripts/test.sh backend          # lint, types, import boundaries, pytest
+./scripts/test.sh frontend         # typecheck, lint, component tests, production build
+./scripts/test.sh frontend=unit    # typecheck and component tests only
+./scripts/test.sh e2e              # a full review through both agents in Docker
+```
+
+The backend suite needs Docker running: its Postgres tests start a throwaway database. No test
+needs an API key.
+
+## Backend
+
+**Static gates**, in `scripts/test.sh backend`, each failing the run:
+
+- `scripts/tests/test_load_env.sh`: `backend/.env` only fills variables the shell has not
+  exported, a blank line included, and a malformed line stops the load;
+- `scripts/tests/test_sync_token.sh`: `init-env.sh --sync-token` copies the agent's token over the
+  `AMEX_AGENT_TOKEN` line and fails when there is no such line;
+- `ruff check src tests` (100-character lines);
+- `mypy` over `src`;
+- `lint-imports`: the four layer contracts of `backend/pyproject.toml` (see
+  [architecture.md](architecture.md#layers)).
+
+**pytest** then runs everything under `backend/tests`, laid out like `src`. `tests/fakes.py` holds
+in-memory implementations of every port, and `tests/test_fakes.py` proves they satisfy their
+ports and behave as the tests assume. `tests/conftest.py` sets `LANGGRAPH_STRICT_MSGPACK=true`,
+unless the environment already sets it, before anything imports LangGraph.
+
+| Layer | Proves |
+|---|---|
+| `domain/` | The taxonomy is the published list; values keep their identity when recategorized; events and questions render to JSON-safe shapes with the published event names; money text has two decimal places. |
+| `application/test_reconcile.py` | Totals add up in `Decimal` and mark overruns; a remembered category overrides the agent's and counts as sure; uncategorized and `low`-confidence rows are grouped by merchant for questions; the same voucher arriving twice counts once (`test_transactions_reducer_dedupes_by_agent_and_id`); the standing-order spend sums only standing-order rows. |
+| `application/test_questions.py` | Question ids and options; a request with a page links to it on the agent's browser address and offers only `continue`, so `skip` is refused; categorize questions may go unanswered, while an answer set naming an unknown id or leaving out a remote question is rejected with the ids named (`test_validate_answers_rejects_a_missing_remote_answer_and_unknown_ids`), as are bad options and non-string values. |
+| `application/test_report.py` | The prompt's table shows spent and limit as whole amounts with thousands separators, as the page does. |
+| `domain/test_merchants.py` | Hebrew and English merchants lose company suffixes and trailing numbers; a key is never empty; a blank merchant is rejected. |
+| `adapters/test_config_files.py` | Agents resolve their three variables and fail on any missing one; a budget category outside the taxonomy fails at load (`test_load_budget_rejects_unknown_category`); the shipped config files load. |
+| `adapters/test_a2a_client.py` | The A2A stream becomes port events: status, batches, input required with its task and optional page, completed snapshots, resume ids, failed states, SDK errors, a stream that ends early; a malformed input request (a `page` that is not a path on the agent's origin included) or an empty stream response fails naming the agent and the fault. A changed card on rediscovery gets a new SDK client; the HTTP client sends the token and allows 300 s between stream events. Cards without the skill (`test_discover_rejects_card_without_skill`), without a JSON-RPC interface, without a bearer scheme, or with no token configured are refused, as is an unreachable card. Wire rows map field by field, and a numeric confidence is refused. |
+| `adapters/test_memory_bus.py` | A published event reaches only its channel's subscribers; a subscription ends with its context. |
+| `adapters/test_report_writer.py` | The canned writer returns its text; the LangChain writer returns the model's reply; providers are built through LangChain with the key passed on; an unknown provider is named. |
+| `adapters/test_a2a_client_live.py` | Skipped unless `AMEX_AGENT_URL` and `AMEX_AGENT_TOKEN` point at a running agent; then fetches 2026-10 from its test statement (24 rows). |
+| `platform/test_config.py`, `test_logging.py`, `test_app.py` | Settings refuse a missing model, `LLM_MODEL=fake`, and a model without its key or provider, while `HFM_E2E` needs neither, and the browser address of amex-agent is its `AMEX_AGENT_URL` unless set; logging levels, and successful `/health` and `/ready` access lines dropped to DEBUG; `/health`, `/ready`, the served page, the production wiring recording a failed review in Postgres, and startup failing a review a stopped server left running. |
+
+**Postgres.** `tests/conftest.py` starts `postgres:16` with Testcontainers once per test module and
+applies the Alembic migrations. `adapters/postgres/test_repositories.py` covers review rows,
+event sequences that never collide under concurrent appends, reviews listed by status, a month
+holding one standing review until it is cleared, reviews created since a time listed cleared ones
+included, and merchant memory upserts.
+`platform/test_checkpointer.py` round-trips a checkpoint through Postgres with `Decimal` and domain
+values intact, and shows the default serializer losing a domain value that the allow-list keeps.
+
+**Graph.** `application/test_review_graph.py` runs the real graph on fakes and an in-memory
+checkpointer with the review's serializer. It covers the happy path, the totals carrying the
+standing-order spend, an unknown merchant pausing and being remembered, memory preventing the second
+question, a remembered category outranking the agent's, "continue" refetching the same task, a
+statement page linked on the agent's browser address, "skip" reporting partial data, two agents
+where only the waiting one is refetched, rows resent on continue counted once, a review with no
+agents, an unusable agent failing the review (`test_graph_fails_review_when_agent_unusable`), one of
+two agents failing its task and a stream ending without a terminal event (each failing the review
+naming the agent), a `low`-confidence guess asked about and kept when unanswered, an unanswered
+merchant staying uncategorized and not asked again after a "continue", a completed review
+recategorizing a merchant without refetching and rewriting the report, a missing remote answer
+rejected on resume, a resume after the agent left the config failing with its name, and a full state
+round trip through the serializer. `test_no_checkpoint_or_pending_write_holds_an_agent_token` runs a
+review through a pause and a "continue" and searches every stored checkpoint, metadata and
+pending-write blob for the agent's token. A fixture fails any test that makes LangGraph log a
+checkpoint warning, so a type missing from the allow-list cannot pass.
+
+**Runner and API.** `platform/test_review_runner.py` drives `ReviewRunner`: waiting on the posed
+question, a missing remote answer rejected with the graph still resumable, full answers completing
+the review, recategorizing a completed review rerunning it to a second report while a review not
+completed or an unknown merchant is refused, answers sent right after the question waiting for the
+run to settle, a run that does not settle refused, domain failures and an agent's failed task shown
+verbatim, infrastructure failures hidden and logged, `aclose` cancelling running reviews, and
+`fail_interrupted` failing a review left running while a waiting one stays waiting. It also covers
+the rations: a month with a standing review refused a second start naming it, a cleared review
+hidden and its month started anew, a running review refused clearing, starts past the daily limit
+refused with the time the next can start (cleared ones counted), and starts older than the window
+ignored; and the month view naming the standing review, the starts left and when the next start is
+allowed.
+`platform/api/test_reviews.py` checks the HTTP codes (202, 404, 409, 422 with what is wrong, 204,
+429 with `Retry-After`), recategorizing, clearing, the 409 naming the standing review and the month
+route included. `platform/api/test_events.py` checks the stream: a page opened after the
+review paused still sees the question through replay
+(`test_events_replays_persisted_events_before_tailing`), events racing the replay arrive once each,
+and the stream ends soon after shutdown. Two tests run real uvicorn on the main thread so its signal
+handlers are the production ones: SIGTERM ends open streams so the shutdown code runs, and the
+shutdown handler chains to the one installed before it. A third test, without uvicorn, installs a
+handler Python cannot see and checks the shutdown handler restores the default action in its place.
+
+**Repository rules.**
+
+| Test | Guards |
+|---|---|
+| `test_architecture.py` | Runs `lint-imports` inside pytest. |
+| `test_requirements_lock.py` | Every direct dependency is pinned exactly in `requirements.txt`, and the Dockerfile installs from it. |
+| `test_readme_toc.py` | Every README contents link reaches a heading. |
+| `test_docker_compose_ports.py` | Postgres is published on `127.0.0.1` only; only the home finance agent (8010) and the agent (8020) listen on every interface. |
+| `test_env_example.py` | `backend/.env.example` documents every settings key and every variable in `config/agents.yaml`, and nothing else beyond the named operational keys. |
+
+## Frontend
+
+Vitest with Testing Library in jsdom (`frontend/src/**/*.test.ts[x]`); `src/test/fakeEventSource.ts`
+stands in for the browser's `EventSource`.
+
+| Test | Proves |
+|---|---|
+| `api/client.test.ts` | An error body becomes an `ApiException` with status and detail; a rejected answer set names its missing, unknown and invalid ids, and a validation error lists its messages, and a record detail shows its message; 204 returns nothing; bodies are posted as JSON and DELETE is sent. |
+| `hooks/useReviewEvents.test.ts` | Events accumulate in order with the last event id, each sequence number once; a malformed frame or one without a sequence number is logged, reported as a stream error and skipped; the stream closes on unmount and restarts clean for a new review. |
+| `components/CollapsibleSection.test.tsx` | The heading toggles the body; a section asked to start folded opens on the first click. |
+| `features/review/EventFeed.test.tsx` | Each message starts with its local time; a status without text shows the state alone. |
+| `features/review/TransactionsSection.test.tsx` | The raw transactions start folded under a heading that counts them, and unfold once when a `low`-confidence row arrives while the review is in progress, staying as the person left them afterwards and folded for a review that already ended; a row repeated across batches shows once; each row shows its details such as its installment, the AI confidence, marked when below high and plain with "(overruled)" once the person chose the category, the statement text as the merchant's tooltip, and the category the totals counted, read-only until the review completes; a category chosen on one row applies to every row of the merchant and is sent once, and kept when the server refuses it; a category chosen in the totals unfolds the section with only its rows; the standing-orders box lists only standing orders; nothing renders before the first row. |
+| `format.test.ts` | Amounts round to whole units with thousands separators; times show as local `YYYY/MM/DD HH:MM:SS`; text that is not a number or a time is refused. |
+| `features/review/MonthPicker.test.tsx` | The billing month defaults to the current month, also across a year boundary; the field is labelled and described as the month the card is charged; a month without a review offers Start with the starts left, none before the month was read, and none once the starts are used, naming when the next is allowed; a month with its review offers Clear instead, held while the review runs; a picked month is reported. |
+| `features/review/QuestionCard.test.tsx` | Each merchant lists its rows with date, card, statement text, amount and details; submit stays disabled until every remote question has an action and while an answer is in flight; only the merchants answered are posted, and "not sure" drops an answer, offering to keep the card agent's guess; a question with a link opens the agent's page in a new tab and offers only "continue". |
+| `features/review/TotalsChart.test.tsx` | Each category with spend gets a slice, summarized in text for screen readers and shown with amount and share on hover; the legend runs largest first and marks an overrun, a missing limit and a category without a slice; a month with no spend draws no pie; skipped agents are listed; a slice or legend entry selects its category and the Totals heading selects all; the standing-order spend is shown and selects the standing orders. |
+| `features/review/ReviewPage.test.tsx` | A review runs from start to totals and report on its events alone, with its raw transactions folded until opened; the started review's month goes into the URL, and a page opened with a month shows that month's review with its waiting question and Clear instead of Start; picking a month without a review hides the review and offers Start; a month that cannot be read is reported; a question posed again before the answer's 204 stays shown; a failure shows once; a malformed frame and a refused answer are shown; choosing a category in the totals lists only its raw transactions and Totals lists all again; choosing the standing orders lists only them until the box is cleared; a completed review recategorizes a merchant from the raw transactions, which stay read-only until the rerun's report arrives; a refused start is shown; Clear review stays disabled while the review runs, then clears it and offers Start again. |
+
+`scripts/test.sh frontend` also runs `tsc -b`, `oxlint` and `vite build`.
+
+## End to end
+
+`./scripts/test.sh e2e` builds and starts the whole stack as its own compose project, `hfm-e2e`,
+with a fresh database, the home finance agent on its canned report (`HFM_E2E`) and amex-agent on
+its keyword classifier (its `e2e` profile), both set by `docker-compose.e2e.yml`. The agent
+reads an empty statements folder that test.sh creates with `mktemp -d`, so it is writable by the
+host user the agent runs as. The script then runs `scripts/e2e/run_review.py` against
+`http://localhost:8010` the way a person would: start a review, read its event stream, load the
+missing statement on the agent's page, answer. It refuses to run while the development stack or an
+earlier `hfm-e2e` stack is up, and removes the project, its volume and the folder on every exit.
+
+The script prints one `PASS:` line per check, 16 in all, for a 2026-10 review:
+
+- **Missing statement**: exactly one remote-input question; it comes from `amex`; it offers only
+  `continue`; its link opens the agent's statements page; the review is waiting; the answer `skip`
+  is refused; amex-agent's test statement, uploaded through `POST /api/statements` on the link's
+  origin, is stored as `2026-10.pdf`; the answer `continue` is accepted.
+- **Categorize**: exactly one categorize question; it is about the gym, `וים קלאבס בע"מ - הו"`; the
+  review is waiting; the answer `health` is accepted; nothing is left uncategorized; health spent
+  is 1556.60, the gym's 307.78 included; the report has text.
+- The review completed end to end.
+
+"skip" is covered by the graph and runner tests only: amex-agent always names its statements page,
+so no end-to-end question offers it.
+
+On a failure it prints the frames seen so far and the last log lines of the home finance agent and
+the agent.
+
+## CI
+
+`.github/workflows/ci.yml` runs on every push and pull request, with two jobs on the same script
+developers use:
+
+- `backend`: Python 3.12, `bash scripts/test.sh backend`. The Testcontainers database runs on the
+  runner's Docker.
+- `frontend`: Node 22, `bash scripts/test.sh frontend`.
+
+The end-to-end test needs the Java repo beside this one, so CI does not run it.

@@ -1,0 +1,113 @@
+export type ReviewStatus = 'running' | 'waiting' | 'completed' | 'failed'
+
+export interface Installment {
+  number: number
+  total: number
+}
+
+export interface Transaction {
+  id: string
+  agent: string
+  transactionDate: string
+  chargeDate: string
+  merchant: string
+  rawMerchant: string
+  /** Groups a merchant's rows; the home finance agent derives it from the statement text. */
+  merchantKey: string
+  amount: string
+  originalAmount: string | null
+  originalCurrency: string | null
+  standingOrder: boolean
+  abroad: boolean
+  installment: Installment | null
+  category: string
+  /** How sure the card agent is of its own category. */
+  confidence: 'high' | 'medium' | 'low'
+}
+
+export interface CategorizeQuestion {
+  id: string
+  kind: 'categorize'
+  merchant: string
+  /** Every row of the merchant in the review, so the person can recall what each was. */
+  transactions: Transaction[]
+  options: string[]
+}
+
+export interface RemoteInputQuestion {
+  id: string
+  kind: 'remote-input'
+  agent: string
+  text: string
+  /** The agent's own page where the person resolves the request; null when it has none. */
+  link: string | null
+  actions: string[]
+}
+
+export type Question = CategorizeQuestion | RemoteInputQuestion
+
+export interface CategoryTotal {
+  category: string
+  spent: string
+  limit: string | null
+  over: boolean
+}
+
+/** Whether a month has its review, and whether a review may start now. */
+export interface MonthView {
+  month: string
+  review: { id: string; status: ReviewStatus } | null
+  limit: number
+  startsLeft: number
+  /** When a start is next allowed; null while starts are left. */
+  nextStart: string | null
+}
+
+export type Answers = Record<string, string>
+
+/** Merchant key to the category chosen for it. */
+export type MerchantCategories = Record<string, string>
+
+export interface TotalsData {
+  currency: string
+  totals: CategoryTotal[]
+  /** The spend charged by standing order, across categories. */
+  standingOrders: string
+  skipped: string[]
+  /** Agent to row id to the category the totals counted the row under. */
+  categories: Record<string, Record<string, string>>
+  /** Agent to the ids of rows whose category the person chose, overruling the card agent. */
+  chosen: Record<string, string[]>
+  /** The categories a person may assign. */
+  options: string[]
+}
+
+/** Every event's data carries `at`, the ISO time the server logged it. */
+type Stamped<T> = T & { at: string }
+
+export type ReviewEvent =
+  | { type: 'agent.discovered'; data: Stamped<{ agent: string; url: string; streaming: boolean }> }
+  | { type: 'agent.status'; data: Stamped<{ agent: string; state: string; text: string | null }> }
+  | {
+      type: 'transactions.batch'
+      data: Stamped<{ agent: string; month: string; count: number; transactions: Transaction[] }>
+    }
+  | { type: 'review.question'; data: Stamped<{ questions: Question[] }> }
+  | { type: 'review.totals'; data: Stamped<TotalsData> }
+  | { type: 'review.report'; data: Stamped<{ text: string }> }
+  | { type: 'review.failed'; data: Stamped<{ message: string }> }
+
+export type ReviewEventType = ReviewEvent['type']
+
+/** An event with its per-review sequence number, which the stream sends as the frame id. */
+export type SequencedEvent = ReviewEvent & { seq: number }
+
+export const REVIEW_EVENT_TYPES: readonly ReviewEventType[] = [
+  'agent.discovered',
+  'agent.status',
+  'transactions.batch',
+  'review.question',
+  'review.totals',
+  'review.report',
+  'review.failed',
+]
