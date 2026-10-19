@@ -7,14 +7,12 @@ both web pages are open, all data belongs to one household, and the only credent
 secret the home finance agent sends on every A2A call (`AMEX_AGENT_TOKEN`, amex-agent's
 `APP_A2A_TOKEN`; see [a2a-contract.md](a2a-contract.md)).
 
-In the diagram, solid shapes and arrows run today; dashed ones are the design. Colors mark who
-owns a component and who sends an arrow: blue for the home finance agent, green for amex-agent,
-amber for Google, grey for the person at the browser.
+In the diagram, tinted shapes and solid arrows run today; white shapes and dashed arrows are the
+design. Colors mark who owns a component and who sends an arrow: blue for the home finance agent,
+green for amex-agent, amber for Google, grey for the person at the browser.
 
 ```mermaid
 flowchart TB
-  subgraph DIAG[ ]
-  direction LR
   U([Household member<br/>browser])
 
   subgraph HFA[Home finance agent  - Python]
@@ -70,45 +68,64 @@ flowchart TB
   GC1 -. "client_id, registered once ⁴" .-> AREG
   GK -. "verify every token ²" .-> HFA
   GK -. "verify every token ²" .-> AMX
-  end
 
-  subgraph NOTES[Solid: today. Dashed: the sign-in design, home-finance-agent#1]
-    direction LR
-    N1["¹ Google is the only identity. Each agent has its own OAuth client in its own Google Cloud project. A user signs in to each page with the same Google account; its id is the user id in both agents."]
-    N2["² Every token is verified locally with the public keys Google publishes: signature, issuer, expiry, audience. A page accepts only its own client id as audience."]
-    N3["³ The A2A call carries two things. The caller secret proves the request comes from the home finance agent. The user's ID token, forwarded as received, says which user it is for."]
-    N4["⁴ amex-agent registers callers in one config list, one entry per caller. The secret on the request selects the entry; the forwarded token's audience must equal that entry's client id. The operator adds or removes entries by hand."]
-    N5["⁵ A missing, bad or expired token answers with the A2A auth-required state; the home finance agent asks the person to sign in again instead of failing the review."]
-    N6["⁶ Data is per user: a user column on every home-finance-agent table, a folder per user in amex-agent, and a user subscribes only to their own review stream."]
-    N7["⁷ Simplification: amex-agent honors a Google token issued to a partner's app. A separately operated amex-agent would rather issue its own tokens after verifying the user (OAuth 2.0 token exchange)."]
-    N1 ~~~ N2 ~~~ N3 ~~~ N4 ~~~ N5 ~~~ N6 ~~~ N7
+  subgraph NOTES[Tinted and solid: runs today. White and dashed: the sign-in design, home-finance-agent#1]
+    direction TB
+    subgraph N1[¹ Google is the only identity. Each agent has its own OAuth client in its own Google Cloud project; a person signs in to each page with the same Google account, whose id is the user id in both agents.]
+      n1[ ]
+    end
+    subgraph N2[² Every token is verified locally with the public keys Google publishes: signature, issuer, expiry and audience. A page accepts only its own client id as audience.]
+      n2[ ]
+    end
+    subgraph N3[³ An A2A call carries two things: the shared secret proves the request comes from the home finance agent; the user's ID token, forwarded as received, says which user it is for.]
+      n3[ ]
+    end
+    subgraph N4[⁴ amex-agent registers callers in one config list. The secret on the request selects the entry; the forwarded token's audience must equal that entry's client id. The operator edits entries by hand.]
+      n4[ ]
+    end
+    subgraph N5[⁵ A missing, bad or expired token answers with the A2A auth-required state; the home finance agent asks the person to sign in again instead of failing the review.]
+      n5[ ]
+    end
+    subgraph N6[⁶ Data is per user: a user column on every home-finance-agent table, a folder per user in amex-agent, and a person subscribes only to their own review stream.]
+      n6[ ]
+    end
+    subgraph N7[⁷ Simplification: amex-agent honors a Google token issued to a partner's app. A separately operated amex-agent would rather issue its own tokens after verifying the user: OAuth 2.0 token exchange.]
+      n7[ ]
+    end
+    n1 ~~~ n2 ~~~ n3 ~~~ n4 ~~~ n5 ~~~ n6 ~~~ n7
   end
-  DIAG ~~~ NOTES
+  AFS ~~~ n1
 
   %% node colors per agent
   classDef user fill:#f3f4f6,stroke:#4b5563,color:#111827
   classDef hfa fill:#dbeafe,stroke:#1d4ed8,color:#111827
   classDef amx fill:#dcfce7,stroke:#15803d,color:#111827
   classDef goog fill:#fef3c7,stroke:#b45309,color:#111827
-  classDef planned stroke-dasharray: 5 5
-  classDef note fill:#ffffff,stroke:#9ca3af,color:#111827
+  classDef planned fill:#ffffff,stroke-dasharray: 5 5
+  classDef blank fill:#ffffff,stroke:#ffffff,color:#ffffff
   class U user
   class HP,HAPI,HG,HLLM,HDB,HSEC hfa
   class AP,AA2A,AFS,AREG amx
   class GC1,GC2,GK goog
   class GC1,GC2,GK,AREG,HSEC planned
-  class N1,N2,N3,N4,N5,N6,N7 note
+  class n1,n2,n3,n4,n5,n6,n7 blank
   style HFA fill:#eff6ff,stroke:#1d4ed8
   style AMX fill:#f0fdf4,stroke:#15803d
-  style GOOG fill:#fffbeb,stroke:#b45309,stroke-dasharray: 5 5
-  style DIAG fill:#ffffff,stroke:#ffffff
-  style NOTES fill:#ffffff,stroke:#9ca3af
+  style GOOG fill:#ffffff,stroke:#b45309,stroke-dasharray: 5 5
+  style NOTES fill:#ffffff,stroke:#ffffff
 
   %% arrow colors by originating agent
   linkStyle 0,1,2,3 stroke:#4b5563
   linkStyle 4,5,6,7,8,9,10,11 stroke:#1d4ed8
   linkStyle 12,13,14,15,16 stroke:#15803d
   linkStyle 17,18,19,20,21 stroke:#b45309
+  style N1 fill:#ffffff,stroke:#ffffff
+  style N2 fill:#ffffff,stroke:#ffffff
+  style N3 fill:#ffffff,stroke:#ffffff
+  style N4 fill:#ffffff,stroke:#ffffff
+  style N5 fill:#ffffff,stroke:#ffffff
+  style N6 fill:#ffffff,stroke:#ffffff
+  style N7 fill:#ffffff,stroke:#ffffff
 ```
 
 ## The design in six points
