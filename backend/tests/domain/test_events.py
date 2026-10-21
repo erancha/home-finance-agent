@@ -14,6 +14,7 @@ def test_event_types_are_the_published_names() -> None:
     assert events.TRANSACTIONS_BATCH == "transactions.batch"
     assert events.REVIEW_QUESTION == "review.question"
     assert events.REVIEW_TOTALS == "review.totals"
+    assert events.REVIEW_WRITING == "review.writing"
     assert events.REVIEW_REPORT == "review.report"
     assert events.REVIEW_FAILED == "review.failed"
 

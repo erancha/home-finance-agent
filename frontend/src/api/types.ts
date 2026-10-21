@@ -105,6 +105,7 @@ export type ReviewEvent =
     }
   | { type: 'review.question'; data: Stamped<{ questions: Question[] }> }
   | { type: 'review.totals'; data: Stamped<TotalsData> }
+  | { type: 'review.writing'; data: Stamped<Record<never, never>> }
   | { type: 'review.report'; data: Stamped<{ text: string }> }
   | { type: 'review.failed'; data: Stamped<{ message: string }> }
 
@@ -119,6 +120,7 @@ export const REVIEW_EVENT_TYPES: readonly ReviewEventType[] = [
   'transactions.batch',
   'review.question',
   'review.totals',
+  'review.writing',
   'review.report',
   'review.failed',
 ]

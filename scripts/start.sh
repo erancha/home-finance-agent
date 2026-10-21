@@ -12,10 +12,12 @@
 # manager is healthy. Host mode provisions backend/.venv, starts PostgreSQL via compose, applies
 # migrations, rebuilds the frontend when its sources changed, and runs uvicorn; Ctrl-C stops it.
 #
-# Card agents come from backend/card-agents.yaml (./scripts/add-card-agent.sh), read at startup, so
-# rerun this script after connecting one. The manager calls the URL an agent's card advertises,
-# which must be reachable from where the manager runs: in Docker an agent on this machine is
-# http://host.docker.internal:<port>, in --host mode http://localhost:<port>.
+# As it brings the manager up, the script prints this agent's Google client id, which a card
+# agent's operator registers it as a caller with. Card agents come from backend/card-agents.yaml
+# (./scripts/add-card-agent.sh), read at startup, so rerun this script after connecting one. The
+# manager calls the URL an agent's card advertises, which must be reachable from where the manager
+# runs: in Docker an agent on this machine is http://host.docker.internal:<port>, in --host mode
+# http://localhost:<port>.
 #
 # Requires backend/.env and the registry (./scripts/init-env.sh). Stop or inspect the Docker
 # stack with ./scripts/docker-helper.sh (--stop / --logs / --ps).
@@ -48,6 +50,7 @@ if [ "$HOST" -eq 0 ]; then
   echo "Open $MANAGER in your browser and sign in with Google."
   echo "  health: $MANAGER/health   ready: $MANAGER/ready"
   echo "  stop the stack or tail logs:  ./scripts/docker-helper.sh --stop | --logs"
+  print_handover
   exit 0
 fi
 
@@ -94,6 +97,7 @@ trap cleanup INT TERM EXIT
 
 echo "Starting the manager; open $MANAGER in your browser and sign in with Google." \
      "Ctrl-C stops it."
+print_handover
 # Run from the repo root: backend/card-agents.yaml and config/budget.yaml resolve against it.
 ( cd "$ROOT" && exec "$VENV/bin/uvicorn" hfm.platform.app:create_app --factory \
     --host 0.0.0.0 --port 8010 --timeout-graceful-shutdown 5 ) &

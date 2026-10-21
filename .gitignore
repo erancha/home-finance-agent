@@ -15,3 +15,6 @@ docs/superpowers/*
 .claude/
 CLAUDE.local.md
 .superpowers/
+
+# Local copies of a previous .env and registry, kept for reference; never committed.
+backup/

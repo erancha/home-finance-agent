@@ -103,7 +103,7 @@ describe('ReviewPage', () => {
     expect(within(raw).getByText('שופרסל')).toHaveAttribute('dir', 'auto')
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Category for שופרסל' }), 'dining')
-    await user.click(screen.getByRole('button', { name: 'Send answers' }))
+    await user.click(screen.getByRole('button', { name: 'continue' }))
     expect(api.answerReview).toHaveBeenCalledExactlyOnceWith('r1', { 'cat:שופרסל': 'dining' })
     await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument())
 
@@ -214,12 +214,12 @@ describe('ReviewPage', () => {
     const user = await startReview()
     emit('review.question', { questions: [remoteQuestion] }, 1)
     await user.click(screen.getByRole('button', { name: 'continue' }))
-    await user.click(screen.getByRole('button', { name: 'Send answers' }))
+    expect(screen.getByRole('button', { name: 'continue' })).toBeDisabled()
 
     emit('review.question', { questions: [remoteQuestion] }, 2)
     await act(async () => acknowledge())
 
-    expect(screen.getByRole('button', { name: 'continue' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'continue' })).toBeEnabled()
   })
 
   it('shows a failure once, prominently', async () => {
@@ -268,7 +268,7 @@ describe('ReviewPage', () => {
     const user = await startReview()
     emit('review.question', { questions: [question] }, 1)
     await user.selectOptions(screen.getByRole('combobox'), 'dining')
-    await user.click(screen.getByRole('button', { name: 'Send answers' }))
+    await user.click(screen.getByRole('button', { name: 'continue' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('review is running')
   })
 })

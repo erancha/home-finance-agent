@@ -127,28 +127,42 @@ export function TotalsChart({
             </ResponsiveContainer>
           </div>
         )}
-        <ul className="totals-legend">
-          {legend.map((total) => {
-            const slice = sliceByCategory.get(total.category)
-            return (
-              <li key={total.category} className={total.over ? 'over' : undefined}>
-                <span className="chip" style={slice && { background: slice.color }} />
-                <button
-                  type="button"
-                  className="legend-button"
-                  aria-pressed={selected === total.category}
-                  onClick={() => onSelect(total.category)}
-                >
-                  {total.category}
-                </button>
-                <span>{amountLabel(total)}</span>
-                {slice && <span className="muted">{shareLabel(slice.share)}</span>}
-                {total.over && <span>over budget</span>}
-                {total.limit === null && <span className="muted">no limit</span>}
-              </li>
-            )
-          })}
-        </ul>
+        <table className="totals-legend">
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th className="num">Spent / limit</th>
+              <th className="num">Share</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {legend.map((total) => {
+              const slice = sliceByCategory.get(total.category)
+              return (
+                <tr key={total.category} className={total.over ? 'over' : undefined}>
+                  <td>
+                    <span className="chip" style={slice && { background: slice.color }} />{' '}
+                    <button
+                      type="button"
+                      className="legend-button"
+                      aria-pressed={selected === total.category}
+                      onClick={() => onSelect(total.category)}
+                    >
+                      {total.category}
+                    </button>
+                  </td>
+                  <td className="num">{amountLabel(total)}</td>
+                  <td className="num muted">{slice && shareLabel(slice.share)}</td>
+                  <td>
+                    {total.over && 'over budget'}
+                    {total.limit === null && <span className="muted">no limit</span>}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
       <p>
         <button type="button" className="legend-button" onClick={onSelectStandingOrders}>

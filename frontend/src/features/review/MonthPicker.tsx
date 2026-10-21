@@ -50,7 +50,7 @@ export function MonthPicker({
         onStart()
       }}
     >
-      {connected && <p className="muted">Card agents: {agents.join(', ')}</p>}
+      {connected && <p className="muted">Registered card agents: {agents.join(', ')}</p>}
       <label>
         Billing month
         <input
@@ -62,7 +62,7 @@ export function MonthPicker({
         />
       </label>
       {view !== null && view.review !== null ? (
-        <button type="button" disabled={busy || !clearable} onClick={onClear}>
+        <button type="button" className="secondary" disabled={busy || !clearable} onClick={onClear}>
           Clear review
         </button>
       ) : (

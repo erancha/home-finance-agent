@@ -1,6 +1,6 @@
 # Architecture
 
-How the home finance agent is built, and why. The message contract with amex-agent is in
+How the home finance agent is built, and why. The contract every card agent offers is in
 [a2a-contract.md](a2a-contract.md); how each part is tested is in [testing.md](testing.md).
 
 **Contents:** [Layers](#layers) · [The review graph](#the-review-graph) ·
@@ -66,7 +66,7 @@ starts at `recategorize` instead of `discover`, so nothing is fetched again.
 | `pose` | Builds the questions (one per merchant with an uncategorized or `low`-confidence row, not left unanswered earlier, one per agent waiting for input), emits `review.question` and stores the questions. |
 | `ask` | Calls `interrupt()` with the stored questions; on resume checks the answers, remembers the chosen categories, marks unanswered merchants and skipped agents, and emits `review.totals` again when something changed. |
 | `recategorize` | Remembers the categories chosen for merchants of a completed review, applies them to every row of each merchant, and emits `review.totals`. |
-| `report` | Builds the prompt from the computed totals and emits `review.report` with the model's text. |
+| `report` | Builds the prompt from the computed totals, emits `review.writing`, asks the model, and emits `review.report` with its text. |
 
 **Reducers.** Parallel fetches write to the same state keys, so each such key has a merge rule:
 
@@ -147,10 +147,11 @@ both sides. A month therefore holds one standing review until the person clears 
 first (`GET /api/months/{month}`), so it never offers that start: a month with its review shows the
 review and offers Clear review, a month without one offers Start review with the starts left. A
 running review cannot be cleared, since its invocation would go on writing to it. On top of that, at
-most `DAILY_REVIEW_LIMIT` (3) reviews start in any 24 hours (`REVIEW_LIMIT_WINDOW`), cleared ones
+most `DAILY_REVIEW_LIMIT` (5) reviews start in any 24 hours (`REVIEW_LIMIT_WINDOW`), cleared ones
 included, and a start past it gets 429 with `Retry-After`. A cleared review is kept in the database
 with `cleared_at` set, so it still counts, but the API answers 404 for it. A partial unique index on
-`reviews.month` where `cleared_at` is null holds the one-standing-review rule in the database too;
+`reviews` (`user_id`, `month`) where `cleared_at` is null holds the one-standing-review rule in the
+database too;
 the runner checks both rules under the lock that serializes its status changes.
 
 **Answers are checked before the graph resumes.** The runner validates an answer set against the
@@ -217,8 +218,8 @@ the code.
   secret under the header the agent card's API key scheme names, and requires the card to ask for
   both together. The auth-required task state becomes a `sign-in-required` pause.
 - The page (`frontend/src/auth/`) loads Google's sign-in script, posts the credential, shows the
-  person's email with a sign-out link, and drops back to the button on any 401, keeping the month in
-  the URL. A `sign-in-required` question shows the button inline before its continue.
+  person's email (their name, or their id, when Google sends none) with a Sign out button, and drops
+  back to the button on any 401, keeping the month in the URL. A `sign-in-required` question shows the button inline before its continue.
 
 ## Events and the live stream
 
@@ -235,6 +236,7 @@ the page's progress list prefixes each message with that time in local `YYYY/MM/
 | `transactions.batch` | `agent`, `month`, `count`, `transactions`, each row with its `merchantKey`; rows may repeat after a "continue", and the page shows each (agent, id) once; a row's `confidence` is the card agent's, `high`, `medium` or `low` |
 | `review.question` | `questions`: each with `id`, `kind` (`categorize` with `merchant`, `transactions` (every row of the merchant), `options`, or `remote-input` with `agent`, `text`, `link` (null when the agent names no page), `actions`) |
 | `review.totals` | `currency`, `totals` (`category`, `spent`, `limit`, `over`), `standingOrders` (the spend charged by standing order, across categories), `skipped`, `categories` (agent to row id to the category the totals counted), `chosen` (agent to the ids of rows whose category the person chose), `options` (the categories a person may assign) |
+| `review.writing` | nothing beyond `at`: the model is being asked for the summary, which can take a while. |
 | `review.report` | `text` |
 | `review.failed` | `message` |
 
@@ -295,13 +297,13 @@ agent's own; no card agent needs to share it.
 as unset. The scripts export `backend/.env` into the environment, and compose passes it to the
 containers; a variable already exported in the calling shell keeps its value, even over a blank line
 in the file (`scripts/common.sh` `load_env`, checked by `scripts/tests/test_load_env.sh`). The app
-refuses to start when a required key is missing or `LLM_MODEL` names a provider without its key.
+refuses to start when a required key is missing.
 
 | Key | Required | Meaning |
 |---|---|---|
 | `DATABASE_URL` | yes | SQLAlchemy URL, `postgresql+psycopg://...`; the checkpointer uses the same database. |
 | `LLM_MODEL` | yes, unless `HFM_E2E` | `anthropic:<model>` or `openai:<model>`. |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | for that provider | The chosen provider's key. |
+| `LLM_API_KEY` | yes, unless `HFM_E2E` | The API key of the provider `LLM_MODEL` names. |
 | `HFM_E2E` | no | Set by `docker-compose.e2e.yml` alone: the report is a canned text and no model or key is read. |
 | `GOOGLE_CLIENT_ID` | yes | The OAuth client of this agent's sign-in button; the audience every accepted token names. |
 | `AUTH_ISSUER`, `AUTH_JWKS_URL` | no | Who issues tokens and where its keys are; Google's by default. |
@@ -363,6 +365,8 @@ unreachable from the network, so other devices need Docker mode or WSL's mirrore
 ## Report providers
 
 `adapters/report_writer.py` turns `LLM_MODEL` into a writer. `provider:model` goes to LangChain's
-`init_chat_model` with the provider's key; `anthropic` and `openai` are supported. Only the
+`init_chat_model` with `LLM_API_KEY`; `anthropic` and `openai` are supported. An OpenAI GPT-5
+model is asked for minimal reasoning effort, since it only phrases totals computed in code and
+takes over a minute on its default. Only the
 end-to-end test, through `HFM_E2E`, gets the canned writer, which returns a fixed paragraph without
 calling any model.

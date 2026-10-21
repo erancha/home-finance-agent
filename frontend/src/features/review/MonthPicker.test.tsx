@@ -52,7 +52,7 @@ describe('MonthPicker', () => {
 
   it('names the connected card agents', () => {
     renderPicker(free, true, ['amex', 'visa'])
-    expect(screen.getByText('Card agents: amex, visa')).toBeInTheDocument()
+    expect(screen.getByText('Registered card agents: amex, visa')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Start review' })).toBeEnabled()
   })
 

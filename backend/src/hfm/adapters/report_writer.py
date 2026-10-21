@@ -3,6 +3,8 @@ model."""
 
 from __future__ import annotations
 
+from typing import Any
+
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 
@@ -26,14 +28,16 @@ class LangChainReportWriter:
         return message.text
 
 
-def build_report_writer(spec: str, api_key: str | None = None) -> ReportWriter:
+def build_report_writer(spec: str, api_key: str) -> ReportWriter:
     """Build the writer for "<provider>:<model>" with an anthropic or openai provider.
 
-    Without an api_key the provider's client reads its own environment variable.
+    The report only phrases totals computed in code, so a model that reasons before answering is
+    asked for its least effort: OpenAI's GPT-5 family takes well over a minute on the default.
     """
-    provider = spec.partition(":")[0]
+    provider, _, model = spec.partition(":")
     if provider not in SUPPORTED_PROVIDERS:
         raise ValueError(f"unsupported report model provider {provider!r} in {spec!r}")
-    if api_key is None:
-        return LangChainReportWriter(init_chat_model(spec))
-    return LangChainReportWriter(init_chat_model(spec, api_key=api_key))
+    options: dict[str, Any] = {"api_key": api_key}
+    if provider == "openai" and model.startswith("gpt-5"):
+        options["reasoning_effort"] = "minimal"
+    return LangChainReportWriter(init_chat_model(spec, **options))

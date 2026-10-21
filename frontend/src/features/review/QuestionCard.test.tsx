@@ -48,7 +48,7 @@ describe('QuestionCard', () => {
     ])
   })
 
-  it('sends only the merchants answered, once every remote question has an action', async () => {
+  it('continues with the merchants answered and "continue" to every card agent asking', async () => {
     const user = userEvent.setup()
     const onSubmit = vi.fn()
     render(
@@ -58,18 +58,23 @@ describe('QuestionCard', () => {
         onSubmit={onSubmit}
       />,
     )
-    const submit = screen.getByRole('button', { name: 'Send answers' })
-    expect(submit).toBeDisabled()
-
     await user.selectOptions(screen.getByLabelText('Category for שופרסל'), 'dining')
-    expect(submit).toBeDisabled()
     await user.click(screen.getByRole('button', { name: 'continue' }))
-    expect(submit).toBeEnabled()
-
-    await user.click(submit)
     expect(onSubmit).toHaveBeenCalledExactlyOnceWith({
       'cat:שופרסל': 'dining',
       'remote:amex': 'continue',
+    })
+  })
+
+  it('skips a card agent at once, keeping the categories chosen so far', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn()
+    render(<QuestionCard questions={[categorize, remote]} submitting={false} onSubmit={onSubmit} />)
+    await user.selectOptions(screen.getByLabelText('Category for שופרסל'), 'dining')
+    await user.click(screen.getByRole('button', { name: 'skip amex' }))
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith({
+      'cat:שופרסל': 'dining',
+      'remote:amex': 'skip',
     })
   })
 
@@ -81,7 +86,7 @@ describe('QuestionCard', () => {
 
     await user.selectOptions(select, 'dining')
     await user.selectOptions(select, 'Not sure: leave uncategorized')
-    await user.click(screen.getByRole('button', { name: 'Send answers' }))
+    await user.click(screen.getByRole('button', { name: 'continue' }))
     expect(onSubmit).toHaveBeenCalledExactlyOnceWith({})
   })
 
@@ -106,10 +111,9 @@ describe('QuestionCard', () => {
     expect(link).toHaveAttribute('href', 'http://localhost:8020/statements.html')
     expect(link).toHaveAttribute('target', '_blank')
     expect(link).toHaveAttribute('rel', 'noopener noreferrer')
-    expect(screen.queryByRole('button', { name: 'skip' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'skip amex' })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'continue' }))
-    await user.click(screen.getByRole('button', { name: 'Send answers' }))
     expect(onSubmit).toHaveBeenCalledExactlyOnceWith({ 'remote:amex': 'continue' })
   })
 
@@ -123,18 +127,18 @@ describe('QuestionCard', () => {
     render(<QuestionCard questions={[signIn]} submitting={false} onSubmit={onSubmit} />)
 
     expect(screen.getByText(signIn.text)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'skip' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'skip amex' })).not.toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: 'Continue with Google' }))
     expect(auth.signIn).toHaveBeenCalledExactlyOnceWith(FakeGoogleIdentity.credential)
     expect(await screen.findByText(/Signed in again as dana@example.com/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'continue' }))
-    await user.click(screen.getByRole('button', { name: 'Send answers' }))
     expect(onSubmit).toHaveBeenCalledExactlyOnceWith({ 'remote:amex': 'continue' })
   })
 
-  it('disables submit while an answer is in flight', () => {
-    render(<QuestionCard questions={[categorize]} submitting onSubmit={vi.fn()} />)
-    expect(screen.getByRole('button', { name: 'Send answers' })).toBeDisabled()
+  it('disables continue and skip while an answer is in flight', () => {
+    render(<QuestionCard questions={[categorize, remote]} submitting onSubmit={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'continue' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'skip amex' })).toBeDisabled()
   })
 })

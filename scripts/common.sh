@@ -82,6 +82,14 @@ ensure_venv() {
   fi
 }
 
+# Requires load_env. start.sh prints this as it brings the manager up: what a card agent's
+# operator needs to register this agent as a caller, so no card agent's docs repeat it. The client
+# id is public.
+print_handover() {
+  echo "Hand this to each card agent's operator, who registers this agent as a caller with it:"
+  echo "  Google client id: $GOOGLE_CLIENT_ID"
+}
+
 # Waits up to about a minute for the URL to answer 2xx.
 wait_for_url() {  # url
   curl -fs --retry 60 --retry-all-errors --retry-delay 1 --max-time 2 -o /dev/null "$1"

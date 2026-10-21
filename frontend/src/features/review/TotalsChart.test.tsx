@@ -26,7 +26,7 @@ function chart(overrides: Partial<ComponentProps<typeof TotalsChart>> = {}) {
 }
 
 function legendRow(category: string): HTMLElement {
-  return screen.getByText(category, { selector: '.totals-legend button' }).closest('li')!
+  return screen.getByText(category, { selector: '.totals-legend button' }).closest('tr')!
 }
 
 describe('TotalsChart', () => {
@@ -41,8 +41,8 @@ describe('TotalsChart', () => {
 
   it('lists every category largest first, marking overruns, missing limits and slice-less rows', () => {
     const { container } = chart()
-    const rows = [...container.querySelectorAll('.totals-legend li')]
-    expect(rows.map((row) => row.children[1].textContent))
+    const rows = [...container.querySelectorAll('.totals-legend tbody tr')]
+    expect(rows.map((row) => row.querySelector('button')!.textContent))
       .toEqual(['groceries', 'dining', 'misc', 'travel'])
     expect(legendRow('groceries')).toHaveClass('over')
     expect(legendRow('groceries')).toHaveTextContent('1,200 / 1,000')

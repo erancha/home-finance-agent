@@ -15,6 +15,8 @@ function describe(event: ReviewEvent): string {
       return `Question posed (${event.data.questions.length})`
     case 'review.totals':
       return 'Totals updated'
+    case 'review.writing':
+      return 'Writing the summary'
     case 'review.report':
       return 'Report ready'
     case 'review.failed':
@@ -22,7 +24,9 @@ function describe(event: ReviewEvent): string {
   }
 }
 
-export function EventFeed({ events }: { events: ReviewEvent[] }) {
+/** working: the review is busy on the server, so the last event's line ends with a spinner. */
+export function EventFeed({ events, working }: { events: ReviewEvent[]; working: boolean }) {
+  const spinner = <span className="spinner" role="status" aria-label="Working" />
   return (
     <section>
       <h2>Progress</h2>
@@ -33,8 +37,10 @@ export function EventFeed({ events }: { events: ReviewEvent[] }) {
               {formatTimestamp(event.data.at)}
             </time>{' '}
             {describe(event)}
+            {working && index === events.length - 1 && <> {spinner}</>}
           </li>
         ))}
+        {working && events.length === 0 && <li className="feed-bare">{spinner}</li>}
       </ul>
     </section>
   )

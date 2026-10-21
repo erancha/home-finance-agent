@@ -18,7 +18,8 @@ Package `hfm` in `backend/src`: `platform → application → ports → domain`;
 - `./scripts/add-card-agent.sh --name N --url U --browser-url B --secret S`: connect a card agent;
   the manager reads the registry at startup.
 - `./scripts/start.sh [--host]`: run db, migrations and the agent; the page is
-  http://localhost:8010, Postgres 127.0.0.1:5434.
+  http://localhost:8010, Postgres 127.0.0.1:5434. Ends by printing the Google client id a card
+  agent registers this agent with.
 - `./scripts/docker-helper.sh --stop [--volumes] | --logs [-e] | --ps`.
 - `./scripts/sql-helper.sh [--counts | --rows | -f <file> | psql-args]`: psql on the stack's
   database; `--counts`/`--rows` run `scripts/sql/all-tables.sql`.

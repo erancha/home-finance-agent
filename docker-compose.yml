@@ -9,7 +9,8 @@ x-manager-env-file: &manager-env-file
   - path: ./backend/.env
     required: true
 
-# In-network addresses override the host-oriented values of backend/.env.
+# Overrides backend/.env: the in-network database address, the registry's mount path and strict
+# checkpoint deserialization.
 x-manager-env: &manager-env
   DATABASE_URL: postgresql+psycopg://hfm:hfm@db:5432/hfm
   CARD_AGENTS_FILE: /card-agents.yaml

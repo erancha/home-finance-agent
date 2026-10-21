@@ -14,8 +14,7 @@ REQUIRED = {
 @pytest.fixture
 def env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     for key in (
-        "ANTHROPIC_API_KEY",
-        "OPENAI_API_KEY",
+        "LLM_API_KEY",
         "CARD_AGENTS_FILE",
         "HFM_FRONTEND_DIST",
         "LLM_MODEL",
@@ -55,22 +54,22 @@ def test_the_registry_path_is_configurable(env: pytest.MonkeyPatch) -> None:
     assert Settings().card_agents_file == Path("/card-agents.yaml")
 
 
-def test_anthropic_model_without_key_fails_naming_the_variable(env: pytest.MonkeyPatch) -> None:
+def test_model_without_key_fails_naming_the_variable(env: pytest.MonkeyPatch) -> None:
     env.setenv("LLM_MODEL", "anthropic:claude-haiku-5-5")
-    with pytest.raises(ValidationError, match="ANTHROPIC_API_KEY"):
+    with pytest.raises(ValidationError, match="LLM_API_KEY"):
         Settings()
 
 
 def test_blank_key_counts_as_missing(env: pytest.MonkeyPatch) -> None:
     env.setenv("LLM_MODEL", "openai:gpt-5-mini")
-    env.setenv("OPENAI_API_KEY", "")
-    with pytest.raises(ValidationError, match="OPENAI_API_KEY"):
+    env.setenv("LLM_API_KEY", "")
+    with pytest.raises(ValidationError, match="LLM_API_KEY"):
         Settings()
 
 
-def test_provider_key_satisfies_validation(env: pytest.MonkeyPatch) -> None:
+def test_model_with_key_satisfies_validation(env: pytest.MonkeyPatch) -> None:
     env.setenv("LLM_MODEL", "anthropic:claude-haiku-5-5")
-    env.setenv("ANTHROPIC_API_KEY", "sk-test")
+    env.setenv("LLM_API_KEY", "sk-test")
     assert Settings().report_model() == ("anthropic:claude-haiku-5-5", "sk-test")
 
 

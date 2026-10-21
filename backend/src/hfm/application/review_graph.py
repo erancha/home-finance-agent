@@ -50,6 +50,7 @@ from hfm.domain.events import (
     REVIEW_QUESTION,
     REVIEW_REPORT,
     REVIEW_TOTALS,
+    REVIEW_WRITING,
     TRANSACTIONS_BATCH,
     ReviewEvent,
     money_text,
@@ -314,6 +315,7 @@ def build_review_graph(
             len(state["transactions"]),
             list(state["skipped"]),
         )
+        await emit(REVIEW_WRITING, {})
         text = await deps.report_writer.write(prompt)
         await emit(REVIEW_REPORT, {"text": text})
         return {"report": text}

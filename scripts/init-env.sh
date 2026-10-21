@@ -7,8 +7,8 @@
 #   ./scripts/init-env.sh             # create backend/.env and backend/card-agents.yaml
 #   ./scripts/init-env.sh --force     # overwrite an existing backend/.env
 #
-# Then set GOOGLE_CLIENT_ID and the API key of LLM_MODEL's provider in backend/.env (docs/sign-in.md
-# walks through the Google Cloud side) and run ./scripts/start.sh. Card agents are connected later
+# Then set GOOGLE_CLIENT_ID and LLM_API_KEY in backend/.env (docs/sign-in.md walks through the
+# Google Cloud side) and run ./scripts/start.sh. Card agents are connected later
 # with ./scripts/add-card-agent.sh; the manager runs without any.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,5 +41,5 @@ else
   printf 'agents: []\n' > "$REGISTRY_FILE"
   echo "Created $REGISTRY_FILE with no card agents."
 fi
-echo "Next: set GOOGLE_CLIENT_ID and the API key for LLM_MODEL in backend/.env, then" \
+echo "Next: set GOOGLE_CLIENT_ID and LLM_API_KEY in backend/.env, then" \
      "./scripts/start.sh. Connect a card agent later with ./scripts/add-card-agent.sh."

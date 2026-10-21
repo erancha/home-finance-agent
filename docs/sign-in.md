@@ -2,8 +2,9 @@
 
 Both agents sign people in with Google and nothing else, and every piece of data belongs to the
 person who signed in. The two agents trust each other through one explicit step: the home finance
-agent is registered with amex-agent as a caller. This page explains how that works and how to set
-up the Google side; the message details are in [a2a-contract.md](a2a-contract.md), the code in
+agent is registered with the card agent as a caller. amex-agent, the demo's card agent, stands
+for any card agent below. This page explains how that works and how to set up the Google side;
+the message details are in [a2a-contract.md](a2a-contract.md), the code in
 [architecture.md](architecture.md#sign-in).
 
 **Contents:** [The design in six points](#the-design-in-six-points) ·
@@ -11,7 +12,7 @@ up the Google side; the message details are in [a2a-contract.md](a2a-contract.md
 [What a real card issuer would do differently](#what-a-real-card-issuer-would-do-differently)
 
 In the diagram, colors mark who owns a component and who sends an arrow: blue for the home finance
-agent, green for amex-agent, amber for Google, grey for the person at the browser.
+agent, green for the card agent, amber for Google, grey for the person at the browser.
 
 ```mermaid
 flowchart TB
@@ -24,20 +25,20 @@ flowchart TB
     HG[LangGraph review]
     HLLM[Report writer<br/>LLM narrates totals]
     HDB[(Postgres<br/>reviews, checkpoints,<br/>merchant memory ⁶)]
-    HSEC[/caller secret<br/>for amex-agent ³/]
+    HSEC[/caller secret<br/>for the card agent ³/]
   end
 
-  subgraph AMX[amex-agent  - Java, third party ⁷]
+  subgraph AMX[Card agent  - another operator ⁷]
     direction TB
     AP[Statements page]
     AA2A[A2A server]
-    AFS[/Statements<br/>one folder per user ⁶/]
+    AFS[/Statements<br/>per user ⁶/]
     AREG[/registered callers ⁴<br/>secret + client id/]
   end
 
   subgraph GOOG[Google  - identity only ¹]
     GC1[OAuth client<br/>project: home finance]
-    GC2[OAuth client<br/>project: amex-agent]
+    GC2[OAuth client<br/>project: card agent]
     GK[public keys ²]
   end
 
@@ -57,7 +58,7 @@ flowchart TB
   HG -->|A2A stream| AA2A
   HG -- "user's ID token<br/>+ caller secret ³" --> AA2A
 
-  %% amex-agent edges: 12-16
+  %% card agent edges: 12-16
   AP --> AFS
   AA2A --> AFS
   AA2A -- "secret selects entry,<br/>token audience = entry client_id" --> AREG
@@ -88,10 +89,10 @@ flowchart TB
     subgraph N5[⁵ A missing, bad or expired token answers with the A2A auth-required state; the home finance agent asks the person to sign in again instead of failing the review.]
       n5[ ]
     end
-    subgraph N6[⁶ Data is per user: a user column on every home-finance-agent table, a folder per user in amex-agent, and a person subscribes only to their own review stream.]
+    subgraph N6[⁶ Data is per user: a user column on every home-finance-agent table, the card agent's statements kept per user, and a person subscribes only to their own review stream.]
       n6[ ]
     end
-    subgraph N7[⁷ Simplification: amex-agent honors a Google token issued to a partner's app. A separately operated amex-agent would rather issue its own tokens after verifying the user: OAuth 2.0 token exchange.]
+    subgraph N7[⁷ Simplification: the card agent honors a Google token issued to a partner's app. A separately operated one would rather issue its own tokens after verifying the user: OAuth 2.0 token exchange.]
       n7[ ]
     end
     n1 ~~~ n2 ~~~ n3 ~~~ n4 ~~~ n5 ~~~ n6 ~~~ n7
@@ -143,8 +144,8 @@ shows the sign-in button again. There are no refresh tokens and no server-side s
 
 **An A2A call carries two things.** The shared secret, under the header `X-Caller-Secret`, proves
 the request comes from the home finance agent. The signed-in person's Google ID token, forwarded
-as received in `Authorization: Bearer`, says which person the call is for, and amex-agent verifies
-it itself rather than trust a bare user id.
+as received in `Authorization: Bearer`, says which person the call is for, and the card agent
+verifies it itself rather than trust a bare user id.
 
 **The card agent registers callers in config of its own, not in a database.** One entry per
 caller: a name, the secret the card agent issued to it, and the Google client id of the caller's
@@ -159,9 +160,9 @@ finance agent treats it as one more pause: the review waits on a "sign in again 
 question, the page shows the Google button inline, and the continue forwards the fresh token.
 
 **Data is keyed by user.** In the home finance agent: reviews, review events, checkpoints, merchant
-memory, and the live event stream, where a person may subscribe only to their own review. In
-amex-agent: a statements folder per Google account id, a statements page that lists only the
-signed-in person's files, and a missing-statement link that lands the same person there.
+memory, and the live event stream, where a person may subscribe only to their own review. The
+card agent keeps its statements per user too, and a missing-statement link lands the same person
+on its page.
 
 ## Setting up Google
 
@@ -171,12 +172,12 @@ project are as distinct as two in separate projects. Two projects is still the r
 because it is the shape of the real deployment, where the card agent belongs to another operator:
 each project has its own consent screen, test users and owner, and nothing in one console touches
 the other. One project would make the two agents look like one app, which is what this demo
-exists to show they are not. The steps are this agent's; a card agent's README names its own
-origin and setting for the same steps.
+exists to show they are not. The steps are this agent's; a card agent's own docs give its origin
+and setting.
 
 1. **Create the project.** In the [Google Cloud console](https://console.cloud.google.com/), open
-   the project picker at the top of the page, choose **New project**, name it after the agent
-   (`home-finance-agent`, `amex-agent`) and create it. Make sure the picker now shows that project:
+   the project picker at the top of the page, choose **New project**, name it
+   `home-finance-agent` and create it. Make sure the picker now shows that project:
    everything below is per project.
 2. **Configure the consent screen.** Search the top bar for **Google Auth Platform** and open it
    (older consoles reach the same place as **APIs & Services → OAuth consent screen**). A new
@@ -187,19 +188,19 @@ origin and setting for the same steps.
    verification, no publishing.
 3. **Add the test users.** Open **Audience** and, under **Test users**, add the household's
    Google accounts. While an app is in testing, Google signs in nobody else, with an "access
-   blocked" page. **Data Access** stays empty: the agents need no scope beyond the defaults.
+   blocked" page. **Data Access** stays empty: the agent needs no scope beyond the defaults.
 4. **Create the client.** Open **Clients → Create client**, choose **Web application**, give it a
    name, and under **Authorized JavaScript origins** add `http://localhost:8010`. Leave
    **Authorized redirect URIs**
    empty: the sign-in button hands the token to the page directly. **Create** shows the client id,
    a long string ending in `.apps.googleusercontent.com`, next to a client secret and a JSON
    download. Only the client id is needed; it stays listed on the Clients page. Ignore the secret
-   and the download, close the dialog, and the "shown once" warning costs nothing: the agents
-   verify tokens, they never redeem codes, so no file of either repo has a place for the secret.
-5. **Give it to the agent.** Copy the client id into `GOOGLE_CLIENT_ID` in `backend/.env`.
+   and the download, close the dialog, and the "shown once" warning costs nothing: the agent
+   verifies tokens, it never redeems codes, so nothing in this repo has a place for the secret.
+5. **Give it to the agent.** Copy the client id into `GOOGLE_CLIENT_ID` in `backend/.env`, the
+   file `init-env.sh` wrote.
 
-Then `init-env.sh` and `start.sh`; connecting a card agent is in
-[connecting-agents.md](connecting-agents.md).
+Then `start.sh`; connecting a card agent is in [connecting-agents.md](connecting-agents.md).
 
 Google accepts only `localhost` or a public hostname as an authorized origin, never a private
 address such as `10.0.0.23`, so a phone on the same network cannot sign in until the stack is
@@ -207,7 +208,7 @@ reached through a hostname.
 
 ## What a real card issuer would do differently
 
-amex-agent accepts a Google token that was issued to the home finance agent's app. A real card
+The card agent accepts a Google token that was issued to the home finance agent's app. A real card
 issuer would not: that token proves to the home finance agent who the person is, and says nothing
 about whether the issuer knows them. The issuer would have the person sign in at its own site, issue
 a token of its own, and let the home finance agent act for the person with that token.

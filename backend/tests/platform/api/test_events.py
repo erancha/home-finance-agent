@@ -22,6 +22,7 @@ from hfm.domain.events import (
     REVIEW_QUESTION,
     REVIEW_REPORT,
     REVIEW_TOTALS,
+    REVIEW_WRITING,
     ReviewEvent,
 )
 from hfm.platform.api.auth import COOKIE
@@ -256,7 +257,7 @@ def test_events_replays_persisted_events_before_tailing() -> None:
         assert replayed[0]["type"] == AGENT_DISCOVERED
         seqs = [frame["seq"] for frame in replayed + tailed]
         assert seqs == list(range(1, len(seqs) + 1))
-        assert [frame["type"] for frame in tailed] == [REVIEW_TOTALS, REVIEW_REPORT]
+        assert [frame["type"] for frame in tailed] == [REVIEW_TOTALS, REVIEW_WRITING, REVIEW_REPORT]
 
         last_question = replayed[-1]["seq"]
         with client.stream(
@@ -265,7 +266,7 @@ def test_events_replays_persisted_events_before_tailing() -> None:
             headers={"Last-Event-ID": str(last_question)},
         ) as response:
             resumed = until(frames(response.iter_lines()), REVIEW_REPORT)
-        assert [frame["seq"] for frame in resumed] == [last_question + 1, last_question + 2]
+        assert [frame["seq"] for frame in resumed] == [last_question + n for n in (1, 2, 3)]
 
         anonymous = httpx.get(f"{client.base_url}/api/reviews/{review_id}/events")
         assert anonymous.status_code == 401
