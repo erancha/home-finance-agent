@@ -24,14 +24,17 @@ async def sessions(pg_url: str) -> AsyncIterator[async_sessionmaker[AsyncSession
     await engine.dispose()
 
 
-# The module's tests share one database, where a month holds one standing review, so each review
-# takes a month of its own.
+# The module's tests share one database, where a user's month holds one standing review, so each
+# review takes a month of its own.
 _months = (f"{year}-09" for year in itertools.count(2000))
+USER = "1001"
+OTHER_USER = "1002"
 
 
-def make_review(review_id: str) -> Review:
+def make_review(review_id: str, user_id: str = USER) -> Review:
     return Review(
         id=review_id,
+        user_id=user_id,
         month=next(_months),
         status=ReviewStatus.RUNNING,
         created_at=datetime(2026, 10, 1, 8, 30, tzinfo=UTC),
@@ -90,15 +93,17 @@ async def test_append_to_unknown_review_raises_key_error(sessions) -> None:
         await PostgresReviewEventStore(sessions).append("nope", ReviewEvent("t", {}))
 
 
-async def test_merchant_memory_lookup_and_upsert(sessions) -> None:
+async def test_merchant_memory_lookup_and_upsert_per_user(sessions) -> None:
     memory = PostgresMerchantMemory(sessions)
-    await memory.remember("m-shufersal", "groceries")
-    await memory.remember("m-shufersal", "household")
-    await memory.remember("m-aroma", "dining")
-    assert await memory.lookup(["m-shufersal", "m-aroma", "m-unknown"]) == {
+    await memory.remember(USER, "m-shufersal", "groceries")
+    await memory.remember(USER, "m-shufersal", "household")
+    await memory.remember(USER, "m-aroma", "dining")
+    await memory.remember(OTHER_USER, "m-shufersal", "other")
+    assert await memory.lookup(USER, ["m-shufersal", "m-aroma", "m-unknown"]) == {
         "m-shufersal": "household",
         "m-aroma": "dining",
     }
+    assert await memory.lookup(OTHER_USER, ["m-shufersal", "m-aroma"]) == {"m-shufersal": "other"}
 
 
 async def test_list_by_status_returns_matching_reviews_oldest_first(sessions) -> None:
@@ -113,24 +118,34 @@ async def test_list_by_status_returns_matching_reviews_oldest_first(sessions) ->
     assert [i for i in running if i.startswith("r-list-")] == ["r-list-older", "r-list-newer"]
 
 
-async def test_a_month_holds_one_standing_review_until_it_is_cleared(sessions) -> None:
+async def test_a_users_month_holds_one_standing_review_until_it_is_cleared(sessions) -> None:
     repo = PostgresReviewRepository(sessions)
     first = make_review("r-standing-first")
     await repo.add(first)
-    assert await repo.standing_for_month(first.month) == first
+    assert await repo.standing_for_month(USER, first.month) == first
     with pytest.raises(ValueError, match=first.month):
         await repo.add(replace(make_review("r-standing-rival"), month=first.month))
 
     cleared_at = datetime(2026, 10, 2, tzinfo=UTC)
     await repo.clear(first.id, cleared_at)
     assert (await repo.get(first.id)).cleared_at == cleared_at
-    assert await repo.standing_for_month(first.month) is None
+    assert await repo.standing_for_month(USER, first.month) is None
     second = replace(make_review("r-standing-second"), month=first.month)
     await repo.add(second)
-    assert await repo.standing_for_month(first.month) == second
+    assert await repo.standing_for_month(USER, first.month) == second
 
 
-async def test_list_created_since_includes_cleared_reviews_oldest_first(sessions) -> None:
+async def test_another_user_reviews_the_same_month_independently(sessions) -> None:
+    repo = PostgresReviewRepository(sessions)
+    mine = make_review("r-shared-month-mine")
+    theirs = replace(make_review("r-shared-month-theirs", OTHER_USER), month=mine.month)
+    await repo.add(mine)
+    await repo.add(theirs)
+    assert await repo.standing_for_month(USER, mine.month) == mine
+    assert await repo.standing_for_month(OTHER_USER, mine.month) == theirs
+
+
+async def test_list_created_since_counts_the_users_own_reviews_cleared_included(sessions) -> None:
     repo = PostgresReviewRepository(sessions)
     since = datetime(2031, 1, 1, tzinfo=UTC)
     before, older, newer = (make_review(f"r-since-{n}") for n in ("before", "older", "newer"))
@@ -138,5 +153,6 @@ async def test_list_created_since_includes_cleared_reviews_oldest_first(sessions
     await repo.add(replace(newer, created_at=since + timedelta(hours=2)))
     await repo.add(replace(older, created_at=since))
     await repo.clear(older.id, since + timedelta(hours=1))
+    await repo.add(replace(make_review("r-since-theirs", OTHER_USER), created_at=since))
 
-    assert [r.id for r in await repo.list_created_since(since)] == [older.id, newer.id]
+    assert [r.id for r in await repo.list_created_since(USER, since)] == [older.id, newer.id]

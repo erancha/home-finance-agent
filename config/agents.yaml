@@ -1,5 +1,0 @@
-agents:
-  - name: amex
-    url_env: AMEX_AGENT_URL
-    token_env: AMEX_AGENT_TOKEN
-    browser_url_env: AMEX_AGENT_BROWSER_URL

@@ -1,5 +1,8 @@
 import { useState } from 'react'
-import type { Answers, Question, Transaction } from '../../api/types.ts'
+import { SIGN_IN_REQUIRED } from '../../api/types.ts'
+import type { Answers, Question, Transaction, User } from '../../api/types.ts'
+import { GoogleSignIn } from '../../auth/GoogleSignIn.tsx'
+import { displayName } from '../../auth/SessionHeader.tsx'
 import { formatAmount } from '../../format.ts'
 import { transactionDetails } from './transactionDetails.ts'
 
@@ -89,6 +92,7 @@ function QuestionInput({
         <strong>{question.agent}</strong>
       </p>
       <p dir="auto">{question.text}</p>
+      {question.reason === SIGN_IN_REQUIRED && <SignInAgain />}
       {question.link !== null && (
         <p>
           <a href={question.link} target="_blank" rel="noopener noreferrer">
@@ -109,6 +113,18 @@ function QuestionInput({
       ))}
     </div>
   )
+}
+
+/**
+ * A card agent could not verify the person: signing in again replaces the session cookie, and the
+ * continue that follows carries the fresh token.
+ */
+function SignInAgain() {
+  const [refreshed, setRefreshed] = useState<User | null>(null)
+  if (refreshed !== null) {
+    return <p className="muted">Signed in again as {displayName(refreshed)}; now continue.</p>
+  }
+  return <GoogleSignIn onSignedIn={setRefreshed} text="continue_with" />
 }
 
 /** Categorize questions are optional: a merchant left unanswered keeps its card agent's guess. */

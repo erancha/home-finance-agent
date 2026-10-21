@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiException, apiDelete, apiGet, apiPost } from './client.ts'
+import { ApiException, SIGNED_OUT_EVENT, apiDelete, apiGet, apiPost } from './client.ts'
 
 function respond(status: number, body: unknown) {
   vi.stubGlobal(
@@ -54,6 +54,18 @@ describe('client', () => {
   it('returns undefined for 204', async () => {
     respond(204, undefined)
     await expect(apiPost('/x', {})).resolves.toBeUndefined()
+  })
+
+  it('announces a 401 on window so the page can drop to sign-in', async () => {
+    const heard = vi.fn()
+    window.addEventListener(SIGNED_OUT_EVENT, heard)
+    respond(401, { detail: 'sign in to continue' })
+    await expect(apiGet('/x')).rejects.toThrow('sign in to continue')
+    expect(heard).toHaveBeenCalledOnce()
+    respond(404, { detail: 'nope' })
+    await expect(apiGet('/x')).rejects.toThrow('nope')
+    expect(heard).toHaveBeenCalledOnce()
+    window.removeEventListener(SIGNED_OUT_EVENT, heard)
   })
 
   it('posts the body as JSON', async () => {

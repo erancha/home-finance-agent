@@ -9,10 +9,19 @@ const free: MonthView = {
 }
 const reviewed: MonthView = { ...free, review: { id: 'r1', status: 'completed' } }
 
-function renderPicker(view: MonthView | null, clearable = true) {
+function renderPicker(
+  view: MonthView | null, clearable = true, agents: string[] | null = ['amex'],
+) {
   const handlers = { onMonth: vi.fn(), onStart: vi.fn(), onClear: vi.fn() }
   render(
-    <MonthPicker month="2026-10" view={view} clearable={clearable} busy={false} {...handlers} />,
+    <MonthPicker
+      month="2026-10"
+      view={view}
+      clearable={clearable}
+      busy={false}
+      agents={agents}
+      {...handlers}
+    />,
   )
   return handlers
 }
@@ -31,6 +40,25 @@ describe('MonthPicker', () => {
     expect(screen.getByText('2 of 3 reviews left in any 24 hours.')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Start review' }))
     expect(onStart).toHaveBeenCalledOnce()
+  })
+
+  it('shows only that no card agent is connected, with no month to pick', () => {
+    renderPicker(free, true, [])
+    expect(screen.getByRole('status')).toHaveTextContent('No card agents are connected yet.')
+    expect(screen.queryByLabelText('Billing month')).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.queryByText(/reviews left/)).toBeNull()
+  })
+
+  it('names the connected card agents', () => {
+    renderPicker(free, true, ['amex', 'visa'])
+    expect(screen.getByText('Card agents: amex, visa')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start review' })).toBeEnabled()
+  })
+
+  it('offers no Start before the agents were read', () => {
+    renderPicker(free, true, null)
+    expect(screen.getByRole('button', { name: 'Start review' })).toBeDisabled()
   })
 
   it('offers no Start before the month was read', () => {

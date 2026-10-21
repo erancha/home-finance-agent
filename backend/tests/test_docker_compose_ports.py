@@ -3,8 +3,9 @@
 Docker publishes on every host interface by default, which bypasses common host firewalls and
 exposes a port to the whole LAN. Postgres runs with fixed demo credentials, so it is published on
 127.0.0.1 only: host-mode processes still reach it at localhost. The home finance agent (8010) and
-amex-agent (8020) are the deliberate exceptions: they are the demo's entry points, and amex-agent's
-A2A endpoint is guarded by its bearer token. Any other publish must be loopback-only.
+amex-agent (8020, in the end-to-end file) are the deliberate exceptions: they are the demo's entry
+points, and the A2A endpoint requires the caller secret and a person's token. Any other publish
+must be loopback-only.
 """
 from pathlib import Path
 

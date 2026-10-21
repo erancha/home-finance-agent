@@ -8,20 +8,24 @@ from typing import Any
 
 import httpx
 import pytest
+from a2a.client import A2AClientError, ClientCallContext
 from a2a.helpers import get_data_parts, new_data_part, new_text_part
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
     AgentInterface,
     AgentSkill,
+    APIKeySecurityScheme,
     Artifact,
-    HTTPAuthSecurityScheme,
     Message,
+    OpenIdConnectSecurityScheme,
     Part,
     Role,
+    SecurityRequirement,
     SecurityScheme,
     SendMessageRequest,
     StreamResponse,
+    StringList,
     Task,
     TaskArtifactUpdateEvent,
     TaskState,
@@ -40,6 +44,7 @@ from hfm.adapters.a2a_client import (
 from hfm.domain.errors import AgentUnusableError
 from hfm.domain.models import AgentConfig, Confidence, Installment, TaskRef
 from hfm.ports.card_agent import (
+    SIGN_IN_REQUIRED,
     AgentEvent,
     InputRequired,
     StatusEvent,
@@ -54,6 +59,9 @@ AGENT = AgentConfig(
 )
 TASK_ID = "task-1"
 CONTEXT_ID = "ctx-1"
+USER_TOKEN = "eyJ-the-persons-id-token"
+SECRET_HEADER = "X-Caller-Secret"
+GOOGLE_DISCOVERY = "https://accounts.google.com/.well-known/openid-configuration"
 
 ROW: dict[str, Any] = {
     "id": "201939841",
@@ -75,12 +83,34 @@ ROW: dict[str, Any] = {
 def make_card(
     *,
     skills: Sequence[str] = (SKILL_ID,),
-    bearer: bool = True,
+    oidc: bool = True,
+    api_key: bool = True,
+    api_key_location: str = "header",
+    secret_header: str = SECRET_HEADER,
+    required_together: bool = True,
     binding: str = "JSONRPC",
     url: str = "http://agent/a2a",
 ) -> AgentCard:
-    http_auth = HTTPAuthSecurityScheme(scheme="bearer")
-    schemes = {"bearer": SecurityScheme(http_auth_security_scheme=http_auth)} if bearer else {}
+    """A card asking, by default, for the person's Google token and the caller secret together,
+    the way amex-agent's does."""
+    schemes: dict[str, SecurityScheme] = {}
+    if oidc:
+        schemes["google"] = SecurityScheme(
+            open_id_connect_security_scheme=OpenIdConnectSecurityScheme(
+                open_id_connect_url=GOOGLE_DISCOVERY
+            )
+        )
+    if api_key:
+        schemes["caller"] = SecurityScheme(
+            api_key_security_scheme=APIKeySecurityScheme(
+                location=api_key_location, name=secret_header
+            )
+        )
+    requirements = (
+        [SecurityRequirement(schemes={name: StringList() for name in schemes})]
+        if required_together
+        else [SecurityRequirement(schemes={name: StringList()}) for name in schemes]
+    )
     return AgentCard(
         name="amex",
         version="1",
@@ -91,27 +121,32 @@ def make_card(
         capabilities=AgentCapabilities(streaming=True),
         skills=[AgentSkill(id=s, name=s, description=s) for s in skills],
         security_schemes=schemes,
+        security_requirements=requirements,
     )
 
 
-def serving(card: AgentCard) -> Callable[[str], httpx.AsyncClient]:
+def serving(card: AgentCard) -> Callable[[], httpx.AsyncClient]:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/.well-known/agent-card.json"
         return httpx.Response(200, json=MessageToDict(card))
 
-    return lambda token: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
 class FakeClient:
-    """Replays hand-built stream chunks and records every request sent."""
+    """Replays hand-built stream chunks and records every request sent with its call context."""
 
     def __init__(self, chunks: Sequence[StreamResponse], error: Exception | None = None) -> None:
         self.chunks = chunks
         self.error = error
         self.requests: list[SendMessageRequest] = []
+        self.contexts: list[ClientCallContext | None] = []
 
-    async def send_message(self, request: SendMessageRequest) -> AsyncIterator[StreamResponse]:
+    async def send_message(
+        self, request: SendMessageRequest, *, context: ClientCallContext | None = None
+    ) -> AsyncIterator[StreamResponse]:
         self.requests.append(request)
+        self.contexts.append(context)
         for chunk in self.chunks:
             yield chunk
         if self.error is not None:
@@ -178,7 +213,7 @@ async def test_fetch_month_translates_stream_to_events() -> None:
     )
     adapter = adapter_for(fake)
 
-    events = await collect(adapter.fetch_month(AGENT, "2026-10", None))
+    events = await collect(adapter.fetch_month(AGENT, "2026-10", None, USER_TOKEN))
     await adapter.aclose()
 
     assert events == [
@@ -195,7 +230,7 @@ async def test_fetch_month_translates_stream_to_events() -> None:
 async def test_fetch_month_input_required_carries_task_ref() -> None:
     fake = FakeClient([status_chunk(TaskState.TASK_STATE_INPUT_REQUIRED, STATEMENT_MISSING)])
 
-    events = await collect(adapter_for(fake).fetch_month(AGENT, "2026-11", None))
+    events = await collect(adapter_for(fake).fetch_month(AGENT, "2026-11", None, USER_TOKEN))
 
     assert events == [
         StatusEvent("amex", "TASK_STATE_INPUT_REQUIRED", QUESTION),
@@ -210,9 +245,8 @@ async def test_fetch_month_input_required_task_snapshot_carries_task_ref() -> No
         status=status_with(TaskState.TASK_STATE_INPUT_REQUIRED, STATEMENT_MISSING),
     )
 
-    events = await collect(
-        adapter_for(FakeClient([StreamResponse(task=snapshot)])).fetch_month(AGENT, "2026-11", REF)
-    )
+    adapter = adapter_for(FakeClient([StreamResponse(task=snapshot)]))
+    events = await collect(adapter.fetch_month(AGENT, "2026-11", REF, USER_TOKEN))
 
     assert events == [
         StatusEvent("amex", "TASK_STATE_INPUT_REQUIRED", QUESTION),
@@ -227,7 +261,7 @@ async def test_fetch_month_input_required_carries_the_agent_page() -> None:
     ]
     fake = FakeClient([status_chunk(TaskState.TASK_STATE_INPUT_REQUIRED, parts)])
 
-    events = await collect(adapter_for(fake).fetch_month(AGENT, "2026-11", None))
+    events = await collect(adapter_for(fake).fetch_month(AGENT, "2026-11", None, USER_TOKEN))
 
     assert events[-1] == InputRequired(
         "amex", REF, QUESTION, "statement-missing", "2026-11", "/statements.html"
@@ -258,16 +292,16 @@ async def test_fetch_month_malformed_input_request_names_the_agent_and_the_probl
     fake = FakeClient([status_chunk(TaskState.TASK_STATE_INPUT_REQUIRED, parts)])
 
     with pytest.raises(AgentUnusableError) as refused:
-        await collect(adapter_for(fake).fetch_month(AGENT, "2026-11", None))
+        await collect(adapter_for(fake).fetch_month(AGENT, "2026-11", None, USER_TOKEN))
 
-    assert str(refused.value) == f"agent 'amex' is unusable: asked for input {problem}"
+    assert str(refused.value) == f"amex asked for input {problem}"
 
 
 async def test_fetch_month_rejects_a_stream_response_with_no_payload() -> None:
     fake = FakeClient([StreamResponse()])
 
-    with pytest.raises(AgentUnusableError, match="carries no task, update or message"):
-        await collect(adapter_for(fake).fetch_month(AGENT, "2026-11", None))
+    with pytest.raises(AgentUnusableError, match="no task, update or message"):
+        await collect(adapter_for(fake).fetch_month(AGENT, "2026-11", None, USER_TOKEN))
 
 
 async def test_fetch_month_completed_task_snapshot_yields_artifacts_then_completion() -> None:
@@ -278,9 +312,8 @@ async def test_fetch_month_completed_task_snapshot_yields_artifacts_then_complet
         artifacts=[transactions_artifact("2026-10", [ROW])],
     )
 
-    events = await collect(
-        adapter_for(FakeClient([StreamResponse(task=snapshot)])).fetch_month(AGENT, "2026-10", REF)
-    )
+    adapter = adapter_for(FakeClient([StreamResponse(task=snapshot)]))
+    events = await collect(adapter.fetch_month(AGENT, "2026-10", REF, USER_TOKEN))
 
     assert events == [
         TransactionsBatch("amex", "2026-10", (make_tx(),)),
@@ -293,13 +326,13 @@ async def test_fetch_month_discovers_first_and_rejects_card_without_skill() -> N
     adapter = adapter_for(FakeClient([]), make_card(skills=("other",)))
 
     with pytest.raises(AgentUnusableError, match=SKILL_ID):
-        await anext(adapter.fetch_month(AGENT, "2026-10", None))
+        await anext(adapter.fetch_month(AGENT, "2026-10", None, USER_TOKEN))
 
 
 async def test_fetch_month_resume_sets_task_and_context_ids() -> None:
     fake = FakeClient([status_chunk(TaskState.TASK_STATE_COMPLETED)])
 
-    await collect(adapter_for(fake).fetch_month(AGENT, "2026-11", REF))
+    await collect(adapter_for(fake).fetch_month(AGENT, "2026-11", REF, USER_TOKEN))
 
     message = fake.requests[0].message
     assert (message.task_id, message.context_id) == (TASK_ID, CONTEXT_ID)
@@ -311,7 +344,7 @@ async def test_fetch_month_reports_failed_state_with_agent_text() -> None:
         [status_chunk(TaskState.TASK_STATE_FAILED, [new_text_part("statement unreadable")])]
     )
 
-    events = await collect(adapter_for(fake).fetch_month(AGENT, "2026-10", None))
+    events = await collect(adapter_for(fake).fetch_month(AGENT, "2026-10", None, USER_TOKEN))
 
     assert events[-1] == TaskFailed("amex", "statement unreadable")
 
@@ -319,7 +352,7 @@ async def test_fetch_month_reports_failed_state_with_agent_text() -> None:
 async def test_fetch_month_surfaces_sdk_error_as_task_failed() -> None:
     fake = FakeClient([task_chunk(TaskState.TASK_STATE_SUBMITTED)], error=InternalError("boom"))
 
-    events = await collect(adapter_for(fake).fetch_month(AGENT, "2026-10", None))
+    events = await collect(adapter_for(fake).fetch_month(AGENT, "2026-10", None, USER_TOKEN))
 
     assert events == [
         StatusEvent("amex", "TASK_STATE_SUBMITTED", None),
@@ -330,7 +363,7 @@ async def test_fetch_month_surfaces_sdk_error_as_task_failed() -> None:
 async def test_fetch_month_fails_when_stream_ends_without_final_state() -> None:
     fake = FakeClient([status_chunk(TaskState.TASK_STATE_WORKING)])
 
-    events = await collect(adapter_for(fake).fetch_month(AGENT, "2026-10", None))
+    events = await collect(adapter_for(fake).fetch_month(AGENT, "2026-10", None, USER_TOKEN))
 
     assert isinstance(events[-1], TaskFailed)
     assert "TASK_STATE_WORKING" in events[-1].message
@@ -345,10 +378,48 @@ async def test_discover_returns_card_capabilities() -> None:
     assert info.skills == (SKILL_ID,)
 
 
-async def test_default_http_sends_the_token_and_waits_long_between_stream_events() -> None:
-    async with default_http("tok") as http:
-        assert http.headers["Authorization"] == "Bearer tok"
+async def test_default_http_carries_no_credentials_and_waits_long_between_stream_events() -> None:
+    async with default_http() as http:
+        assert "Authorization" not in http.headers
         assert http.timeout == httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0)
+
+
+async def test_each_call_carries_the_persons_token_and_the_secret_under_the_cards_header(
+) -> None:
+    fake = FakeClient([status_chunk(TaskState.TASK_STATE_COMPLETED)])
+    adapter = adapter_for(fake, make_card(secret_header="X-Partner-Key"))
+
+    await collect(adapter.fetch_month(AGENT, "2026-10", None, "tok-dana"))
+    await collect(adapter.fetch_month(AGENT, "2026-10", None, "tok-noam"))
+
+    assert [c.service_parameters for c in fake.contexts if c is not None] == [
+        {"Authorization": "Bearer tok-dana", "X-Partner-Key": "secret"},
+        {"Authorization": "Bearer tok-noam", "X-Partner-Key": "secret"},
+    ]
+
+
+async def test_fetch_month_auth_required_pauses_with_sign_in_required() -> None:
+    text = "amex-agent could not verify who you are (expired). Sign in again and continue."
+    parts = [
+        new_text_part(text),
+        new_data_part({"reason": SIGN_IN_REQUIRED, "month": "2026-11", "user": ""}),
+    ]
+    fake = FakeClient([status_chunk(TaskState.TASK_STATE_AUTH_REQUIRED, parts)])
+
+    events = await collect(adapter_for(fake).fetch_month(AGENT, "2026-11", None, USER_TOKEN))
+
+    assert events == [
+        StatusEvent("amex", "TASK_STATE_AUTH_REQUIRED", text),
+        InputRequired("amex", REF, text, SIGN_IN_REQUIRED, "2026-11", None),
+    ]
+
+
+async def test_fetch_month_auth_required_with_another_reason_is_unusable() -> None:
+    parts = [new_text_part("why"), new_data_part({"reason": "mfa", "month": "2026-11"})]
+    fake = FakeClient([status_chunk(TaskState.TASK_STATE_AUTH_REQUIRED, parts)])
+
+    with pytest.raises(AgentUnusableError, match="asked for sign-in with reason 'mfa'"):
+        await collect(adapter_for(fake).fetch_month(AGENT, "2026-11", None, USER_TOKEN))
 
 
 async def test_a_changed_card_on_rediscovery_gets_a_new_sdk_client() -> None:
@@ -364,12 +435,12 @@ async def test_a_changed_card_on_rediscovery_gets_a_new_sdk_client() -> None:
         return FakeClient([task_chunk(TaskState.TASK_STATE_COMPLETED)])
 
     adapter = A2ACardAgentClient(
-        http_factory=lambda token: httpx.AsyncClient(transport=httpx.MockTransport(card)),
+        http_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(card)),
         client_factory=client_factory,
     )
     for _ in served[:]:
         await adapter.discover(AGENT)
-        await collect(adapter.fetch_month(AGENT, "2026-10", None))
+        await collect(adapter.fetch_month(AGENT, "2026-10", None, USER_TOKEN))
 
     assert built == ["http://agent/a2a", "http://moved/a2a"]
 
@@ -388,30 +459,110 @@ async def test_discover_rejects_card_without_jsonrpc_interface() -> None:
         await adapter.discover(AGENT)
 
 
-async def test_discover_rejects_card_without_bearer_scheme() -> None:
-    adapter = adapter_for(FakeClient([]), make_card(bearer=False))
+@pytest.mark.parametrize(
+    ("card", "problem"),
+    [
+        (make_card(oidc=False), "no OpenID Connect scheme for the person"),
+        (make_card(api_key=False), "no header API key scheme for the caller"),
+        (make_card(api_key_location="query"), "no header API key scheme for the caller"),
+        (make_card(required_together=False), "together"),
+    ],
+)
+async def test_discover_rejects_a_card_that_does_not_ask_for_both_credentials(
+    card: AgentCard, problem: str
+) -> None:
+    adapter = adapter_for(FakeClient([]), card)
 
-    with pytest.raises(AgentUnusableError, match="no HTTP bearer security scheme"):
+    with pytest.raises(AgentUnusableError, match=problem):
         await adapter.discover(AGENT)
 
 
-async def test_discover_rejects_bearer_card_without_token() -> None:
+async def test_discover_rejects_a_card_asking_for_a_secret_when_none_is_set() -> None:
     adapter = adapter_for(FakeClient([]), make_card())
 
-    with pytest.raises(AgentUnusableError, match="token"):
+    with pytest.raises(AgentUnusableError, match="secret"):
         await adapter.discover(replace(AGENT, token=""))
 
 
-async def test_discover_rejects_unreachable_card() -> None:
+UNREACHABLE = "could not be reached at http://agent; it may not be running"
+
+
+async def test_discover_names_an_agent_that_refuses_the_connection() -> None:
     def refuse(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401)
+        raise httpx.ConnectError("All connection attempts failed", request=request)
 
     adapter = A2ACardAgentClient(
-        http_factory=lambda token: httpx.AsyncClient(transport=httpx.MockTransport(refuse))
+        http_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(refuse))
     )
 
-    with pytest.raises(AgentUnusableError, match="401"):
+    with pytest.raises(AgentUnusableError) as refused:
         await adapter.discover(AGENT)
+
+    assert str(refused.value) == f"amex {UNREACHABLE}"
+
+
+async def test_discover_names_a_card_that_cannot_be_fetched_for_another_reason() -> None:
+    def forbid(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403)
+
+    adapter = A2ACardAgentClient(
+        http_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(forbid))
+    )
+
+    with pytest.raises(AgentUnusableError) as refused:
+        await adapter.discover(AGENT)
+
+    assert str(refused.value).startswith("amex could not be fetched from http://agent: ")
+    assert "403" in str(refused.value)
+
+
+def _client_error(cause: Exception) -> A2AClientError:
+    error = A2AClientError("HTTP Error 401: ...")
+    error.__cause__ = cause
+    return error
+
+
+async def test_fetch_month_names_a_refused_secret() -> None:
+    request = httpx.Request("POST", "http://agent/a2a")
+    cause = httpx.HTTPStatusError(
+        "401", request=request, response=httpx.Response(401, request=request)
+    )
+    fake = FakeClient([task_chunk(TaskState.TASK_STATE_SUBMITTED)], error=_client_error(cause))
+
+    events = await collect(adapter_for(fake).fetch_month(AGENT, "2026-10", None, USER_TOKEN))
+
+    assert events[-1] == TaskFailed("amex", "refused this agent's secret; check its registration")
+
+
+@pytest.mark.parametrize(
+    "cause",
+    [
+        httpx.ConnectError("refused", request=httpx.Request("POST", "http://agent/a2a")),
+        httpx.ReadTimeout("slow", request=httpx.Request("POST", "http://agent/a2a")),
+    ],
+)
+async def test_fetch_month_names_a_lost_connection(cause: Exception) -> None:
+    fake = FakeClient([task_chunk(TaskState.TASK_STATE_SUBMITTED)], error=_client_error(cause))
+
+    events = await collect(adapter_for(fake).fetch_month(AGENT, "2026-10", None, USER_TOKEN))
+
+    assert events[-1] == TaskFailed(
+        "amex", "could not be reached at http://agent/a2a; it may not be running"
+    )
+
+
+async def test_fetch_month_names_the_advertised_address_when_it_differs_from_the_card() -> None:
+    cause = httpx.ConnectError("refused", request=httpx.Request("POST", "http://localhost:8020"))
+    fake = FakeClient([], error=_client_error(cause))
+    adapter = adapter_for(fake, make_card(url="http://localhost:8020/a2a"))
+
+    events = await collect(adapter.fetch_month(AGENT, "2026-10", None, USER_TOKEN))
+
+    assert events[-1] == TaskFailed(
+        "amex",
+        "could not be reached at http://localhost:8020/a2a, the address its card advertises "
+        "(registered at http://agent); it may not be running",
+    )
 
 
 def test_parse_transaction_maps_wire_fields() -> None:

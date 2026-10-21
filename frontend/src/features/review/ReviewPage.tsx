@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { getAgents } from '../../api/agents.ts'
 import {
   answerReview,
   clearReview,
@@ -65,6 +66,7 @@ function putMonthInUrl(month: string) {
 }
 
 export function ReviewPage() {
+  const [agents, setAgents] = useState<string[] | null>(null)
   const [month, setMonth] = useState(
     () => new URLSearchParams(window.location.search).get(MONTH_PARAM) ?? currentMonth(new Date()),
   )
@@ -106,6 +108,17 @@ export function ReviewPage() {
   const completed = report !== undefined && failure === undefined && pause === null && rerunSettled
   // The server refuses to clear a running review; one that ended or waits for answers can go.
   const clearable = completed || failure !== undefined || pause !== null
+
+  useEffect(() => {
+    let current = true
+    getAgents().then(
+      (response) => current && setAgents(response.agents),
+      (e: unknown) => current && setError(errorText(e)),
+    )
+    return () => {
+      current = false
+    }
+  }, [])
 
   useEffect(() => {
     // A cleared month field names no month to read.
@@ -177,6 +190,7 @@ export function ReviewPage() {
         view={view}
         clearable={clearable}
         busy={busy}
+        agents={agents}
         onMonth={pick}
         onStart={() => {
           putMonthInUrl(month)

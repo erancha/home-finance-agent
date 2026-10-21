@@ -48,15 +48,19 @@ def test_question_to_dict_shapes() -> None:
         "options": ["health", "other"],
     }
     rq = RemoteInputQuestion(
-        "q2", "amex", "No statement covers 2026-09", "http://localhost:8020/s.html", ("continue",)
+        "q2", "amex", "No statement covers 2026-09", "statement-missing",
+        "http://localhost:8020/s.html", ("continue",),
     )
     assert question_to_dict(rq) == {
         "id": "q2",
         "kind": "remote-input",
         "agent": "amex",
         "text": "No statement covers 2026-09",
+        "reason": "statement-missing",
         "link": "http://localhost:8020/s.html",
         "actions": ["continue"],
     }
-    unlinked = RemoteInputQuestion("q3", "amex", "Enter the SMS code", None, ("continue", "skip"))
+    unlinked = RemoteInputQuestion(
+        "q3", "amex", "Enter the SMS code", "auth", None, ("continue", "skip")
+    )
     assert question_to_dict(unlinked)["link"] is None

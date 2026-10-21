@@ -4,8 +4,9 @@ How the home finance agent is built, and why. The message contract with amex-age
 [a2a-contract.md](a2a-contract.md); how each part is tested is in [testing.md](testing.md).
 
 **Contents:** [Layers](#layers) · [The review graph](#the-review-graph) ·
-[Running a review](#running-a-review) · [Events and the live stream](#events-and-the-live-stream) ·
-[Storage](#storage) · [Configuration](#configuration) · [Report providers](#report-providers)
+[Running a review](#running-a-review) · [Sign-in](#sign-in) ·
+[Events and the live stream](#events-and-the-live-stream) · [Storage](#storage) ·
+[Configuration](#configuration) · [Report providers](#report-providers)
 
 ## Layers
 
@@ -13,10 +14,10 @@ One package, `hfm`, under `backend/src`, in five layers:
 
 | Layer | Holds | Modules |
 |---|---|---|
-| `domain` | Plain immutable values and the rules on them: transactions, budget, totals, questions, events, the category list, merchant keys, errors. | `models`, `taxonomy`, `merchants`, `questions`, `events`, `errors` |
-| `ports` | The interfaces the review needs from the outside world, as Python protocols. | `card_agent`, `repositories`, `events`, `report` |
-| `application` | The review itself: the graph, totals arithmetic, questions and answer checks, the report prompt, the event sink. | `review_graph`, `reconcile`, `questions`, `report`, `event_sink` |
-| `adapters` | Port implementations: the A2A client, Postgres repositories, the report writers, YAML config loading, the in-process event bus. | `a2a_client`, `postgres/`, `report_writer`, `config_files`, `memory_bus` |
+| `domain` | Plain immutable values and the rules on them: transactions, budget, totals, questions, events, the category list, merchant keys, the signed-in person, errors. | `models`, `taxonomy`, `merchants`, `questions`, `events`, `errors` |
+| `ports` | The interfaces the review needs from the outside world, as Python protocols. | `card_agent`, `repositories`, `events`, `report`, `auth` |
+| `application` | The review itself: the graph, totals arithmetic, questions and answer checks, the report prompt, the event sink, the run-scoped user token. | `review_graph`, `reconcile`, `questions`, `report`, `event_sink`, `user_token` |
+| `adapters` | Port implementations: the A2A client, Postgres repositories, the report writers, the Google token verifier, YAML config loading, the in-process event bus. | `a2a_client`, `postgres/`, `report_writer`, `google_tokens`, `config_files`, `memory_bus` |
 | `platform` | The running process: settings, logging, database engine, checkpointer, the review runner and the HTTP API. | `config`, `logging`, `db`, `checkpointer`, `review_runner`, `app`, `dependencies`, `api/` |
 
 Imports point inwards only. `platform` may use everything; `application` uses `ports` and
@@ -97,8 +98,8 @@ missing, the agent asks again. When the agent names a page for the request, the 
 "continue": the person loads the statement there and then continues. A question without a page
 also offers "skip", which leaves the agent out: the review totals what it has, lists the agent
 under `skipped` in `review.totals`, and the report prompt asks the model to say plainly that the
-agent's spend is missing. amex-agent always names its statements page, so its questions never
-offer "skip".
+agent's spend is missing. A card agent that names a page for every missing statement, as the one
+in this demo does, never has its questions offer "skip".
 
 **Checkpoint types.** `checkpoint_serde()` gives the checkpointer an explicit allow-list of the
 domain types that can sit in the state (`CHECKPOINTED_TYPES`). LangGraph rebuilds only those types
@@ -109,8 +110,8 @@ graph tests fail on any checkpoint warning, so a state type missing from the lis
 
 **No secret in a checkpoint.** The state and every `Send` name agents only; `discover` records the
 configured names when the review starts, and each fetch resolves the name to its URL and token from
-the graph's dependencies. A paused review whose agent has left `config/agents.yaml` fails with
-"`<name>` is no longer configured" when it resumes.
+the graph's dependencies. A paused review whose agent has left the registry
+`backend/card-agents.yaml` fails with "`<name>` is no longer configured" when it resumes.
 
 **Numbers never come from the model.** Totals, limits and the over-budget flag are computed in
 `application/reconcile.py` with `Decimal`. The model only receives them as a table in the prompt
@@ -118,9 +119,12 @@ the graph's dependencies. A paused review whose agent has left `config/agents.ya
 
 ## Running a review
 
-`platform/review_runner.py` owns the graph invocations. Every invocation runs as a background task,
-so the HTTP request that starts or answers a review returns as soon as the review is recorded. A
-review has at most one invocation in flight.
+`platform/review_runner.py` owns the graph invocations, each on behalf of the signed-in person.
+Every invocation runs as a background task, so the HTTP request that starts or answers a review
+returns as soon as the review is recorded. A review has at most one invocation in flight. A review
+that belongs to someone else is not found, exactly like one that does not exist, so no id reveals
+another person's review; each person has their own standing review per month and their own three
+starts a day.
 
 | Status | Means |
 |---|---|
@@ -187,6 +191,35 @@ like the page, shows whole amounts with thousands separators (`3,537`), so the s
 that way. A transaction's `originalAmount`, in a foreign currency whose minor unit may differ, is
 written as the agent sent it.
 
+## Sign-in
+
+[sign-in.md](sign-in.md) explains the design and the Google Cloud setup; this is where it lives in
+the code.
+
+- `adapters/google_tokens.py` implements the `TokenVerifier` port on PyJWT: RS256 signature against
+  the keys at `AUTH_JWKS_URL` (cached), issuer `AUTH_ISSUER` (Google's bare `accounts.google.com`
+  form accepted for Google's issuer only), expiry, and audience equal to `GOOGLE_CLIENT_ID`. With
+  `AUTH_PUBLIC_KEY_FILE` set, that PEM key replaces the JWKS fetch; the end-to-end test and the
+  platform tests sign their own tokens that way and never reach Google.
+- `platform/api/auth.py`: `POST /api/auth/session` verifies the credential Google's button handed
+  the page and sets it as the cookie `hfm_id_token`, HttpOnly, SameSite=Strict, Secure over https,
+  expiring with the token. Every review and month route and the event stream take `CurrentSession`,
+  which verifies the cookie again on each request and answers 401 with the reason otherwise; the
+  cookie, rather than a header, because the browser's event-stream object cannot send headers.
+  `GET /api/auth/me` names the person, `DELETE /api/auth/session` signs out, `GET /api/auth/config`
+  publishes the client id. Nothing is stored server side.
+- The person's token reaches the card-agent fetch through `application/user_token.py`, a context
+  variable the runner sets around each graph invocation. It is never in the graph state or the run
+  configuration, so no checkpoint or checkpoint metadata holds it; the graph test that searches
+  every stored blob for the agent secret searches for the user token too. The state does carry the
+  person's id, which the merchant memory is keyed by.
+- `adapters/a2a_client.py` sends, per call, `Authorization: Bearer <the token>` and the caller
+  secret under the header the agent card's API key scheme names, and requires the card to ask for
+  both together. The auth-required task state becomes a `sign-in-required` pause.
+- The page (`frontend/src/auth/`) loads Google's sign-in script, posts the credential, shows the
+  person's email with a sign-out link, and drops back to the button on any 401, keeping the month in
+  the URL. A `sign-in-required` question shows the button inline before its continue.
+
 ## Events and the live stream
 
 Every step of a review is an event. `application/event_sink.py` appends it to the review's event
@@ -240,14 +273,17 @@ as a stream error.
 
 One Postgres database (`postgres:16` in compose, published on `127.0.0.1:5434`):
 
-- `reviews`, `review_events` (primary key review id plus `seq`) and `merchant_memory` (merchant
+- `reviews` (with the owner's `user_id`; one standing review per user and month),
+  `review_events` (primary key review id plus `seq`) and `merchant_memory` (user id and merchant
   key to category), created by the Alembic migrations in `backend/alembic/versions/`, which also
   move remembered categories onto the current category list.
-- LangGraph's checkpoint tables, created by `AsyncPostgresSaver.setup()` when the app starts.
+- LangGraph's checkpoint tables, created by `AsyncPostgresSaver.setup()` when the app starts; the
+  thread id is the review id, whose owner the `reviews` row names.
 
-Merchant memory is shared by all reviews and kept until changed, so a second review of the same
-month asks nothing; the end-to-end test therefore runs on a fresh database. The checkpointer holds
-one database connection, so after the database restarts, restart the home finance agent too.
+A person's merchant memory is shared by all their reviews and kept until changed, so a second
+review of the same month asks nothing; the end-to-end test therefore runs on a fresh database. The
+checkpointer holds one database connection, so after the database restarts, restart the home
+finance agent too.
 
 The merchant key is the normalised merchant text (`domain/merchants.py`): lower case, spaces
 collapsed, company suffixes and trailing number groups dropped. The rule is the home finance
@@ -267,40 +303,56 @@ refuses to start when a required key is missing or `LLM_MODEL` names a provider 
 | `LLM_MODEL` | yes, unless `HFM_E2E` | `anthropic:<model>` or `openai:<model>`. |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | for that provider | The chosen provider's key. |
 | `HFM_E2E` | no | Set by `docker-compose.e2e.yml` alone: the report is a canned text and no model or key is read. |
-| `AMEX_AGENT_URL` | no | Where amex-agent answers; default `http://localhost:8020`. |
-| `AMEX_AGENT_TOKEN` | yes | The bearer token amex-agent expects. |
-| `AMEX_AGENT_BROWSER_URL` | no | Where a browser reaches amex-agent, for links to its statements page; default `AMEX_AGENT_URL`. Compose replaces `AMEX_AGENT_URL` with `http://amex-agent:8020` for the home finance agent but passes this one as set in `backend/.env`, else the `.env` value of `AMEX_AGENT_URL`. |
-| `AGENTS_CONFIG` | no | Default `config/agents.yaml`. |
+| `GOOGLE_CLIENT_ID` | yes | The OAuth client of this agent's sign-in button; the audience every accepted token names. |
+| `AUTH_ISSUER`, `AUTH_JWKS_URL` | no | Who issues tokens and where its keys are; Google's by default. |
+| `AUTH_PUBLIC_KEY_FILE` | no | Test only: a PEM key that replaces the JWKS fetch. |
+| `CARD_AGENTS_FILE` | no | The card-agent registry; default `backend/card-agents.yaml`, which compose mounts at `/card-agents.yaml`. Absent or empty: no card agents. |
 | `BUDGET_CONFIG` | no | Default `config/budget.yaml`. |
 | `HFM_FRONTEND_DIST` | no | Built page folder served at `/`; unset serves the API only. |
 
-Keys read outside the settings class: `AMEX_AGENT_DIR` and `AMEX_STATEMENTS_DIR` (scripts and
-compose: where the Java repo and the statements folder are, with no defaults; `start.sh --host`
-hands the folder to the agent as `APP_STATEMENTS_DIR`), `LANGGRAPH_STRICT_MSGPACK` (LangGraph
-itself), `HFM_LOG_LEVEL` and `HFM_LOG_LEVELS` (`platform/logging.py`). `backend/.env.example`
-explains each; `tests/test_env_example.py` keeps that file and the code in step.
+Keys read outside the settings class: `LANGGRAPH_STRICT_MSGPACK` (LangGraph itself),
+`HFM_LOG_LEVEL` and `HFM_LOG_LEVELS` (`platform/logging.py`). `backend/.env.example` explains
+each; `tests/test_env_example.py` keeps that file and the code in step. The scripts export
+`CARD_AGENTS_FILE` for the compose mount, and `start.sh` refuses to launch while the registry file
+is missing, since a bind mount of a missing path would create a directory there; `init-env.sh`
+creates it empty.
 
-**`config/agents.yaml`** lists the card agents by `name`, with `url_env`, `token_env` and
-`browser_url_env` naming the variables that hold the agent's address, its token and the address a
-browser opens its pages at. A variable that is not set stops startup with its name.
+**`backend/card-agents.yaml`**, the registry `scripts/add-card-agent.sh` writes (gitignored, mode
+600), lists the card agents by `name` with `url`, the address the manager fetches the card from,
+`browser_url`, the address a person's browser opens the agent's pages at, and `shared_secret`, the
+secret the agent issued to this one. The manager fetches the card at `url` and calls the URL the
+card advertises, which its start script prints, so both must be reachable from where the manager
+runs, and an unreachable call names the advertised address when it differs from the registered one.
+An absent file or `agents: []` means no card agents: the manager runs, and the page says so. A blank
+field, a non-http(s) URL or a name listed twice stops startup naming the entry
+(`adapters/config_files.load_card_agents`). The file holds the agents' secrets, so the scripts write
+it readable by its owner alone, and compose runs the manager container as that user (`user:` from
+`HOST_UID`/`HOST_GID`, which `load_env` exports) so the read-only mount is readable inside it; the
+image's own user `hfm` serves the migration run.
+
+In Docker the manager reaches an agent on the same machine as `http://host.docker.internal:<port>`;
+compose gives the container that name (`extra_hosts: host-gateway`), which Docker Desktop provides
+on its own. In `--host` mode the manager is a host process, so the agent is registered, and
+advertises itself, as `http://localhost:<port>`.
 
 **`config/budget.yaml`** holds the `currency` and a monthly limit per category. Every category must
-be in the shared taxonomy (`domain/taxonomy.py`, the same list as amex-agent's); an unknown one
-stops startup rather than totalling to zero.
+be in the shared taxonomy (`domain/taxonomy.py`, the list the card agents categorize against); an
+unknown one stops startup rather than totalling to zero.
 
 ### Other devices on your network
 
 The home finance agent listens on every interface in both modes (compose publishes `8010:8010`;
 `start.sh --host` runs uvicorn with `--host 0.0.0.0`), and the page calls its API by relative paths,
-so any browser on the network can use `http://<this machine's address>:8010`. The home finance agent
-has no sign-in, so anyone on the network who can reach port 8010 can read the month's
-transactions and answer the review's questions. The browser opens only amex-agent's statements
-page, from a missing-statement question's link; everything else on amex-agent is called by the home
-finance agent. It is published too (`8020:8020`): the statements page and its API are open, so
-anyone on the network can list, add and delete statements there; every other call except the card
-and its health check needs the shared token. The link uses `AMEX_AGENT_BROWSER_URL`,
-`http://localhost:8020` by default, so for another device to follow it, set that key to this
-machine's address. Postgres stays on `127.0.0.1:5434`.
+so any browser on the network can reach `http://<this machine's address>:8010`. Reaching it is not
+using it: every review route needs the sign-in cookie, and Google issues a token only to a page
+served from an authorized origin, which must be `localhost` or a public hostname, never a private
+address. So another device on the network sees the sign-in button and cannot get past it until the
+stack is reached through a hostname registered with both Google clients. The browser opens only
+a card agent's page, from a missing-statement question's link; everything else on a card agent is
+called by the home finance agent, and a card agent publishes and guards its own port from its own
+repo. The link uses the agent's `browser_url` in the registry, so for another device to follow it,
+register the agent with this machine's address as its browser URL. Postgres stays on
+`127.0.0.1:5434`.
 
 On Windows with WSL2 and Docker Desktop, Docker mode needs nothing more: Docker Desktop serves the
 published port on the Windows side, so other devices use the Windows machine's address.

@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as agentsApi from '../../api/agents.ts'
 import * as api from '../../api/reviews.ts'
 import type { MonthView, Transaction } from '../../api/types.ts'
 import { FakeEventSource } from '../../test/fakeEventSource.ts'
@@ -8,6 +9,7 @@ import { ApiException } from '../../api/client.ts'
 import { ReviewPage } from './ReviewPage.tsx'
 
 vi.mock('../../api/reviews.ts')
+vi.mock('../../api/agents.ts')
 
 const row: Transaction = {
   id: 't1', agent: 'amex', transactionDate: '2026-09-02', chargeDate: '2026-10-02',
@@ -25,7 +27,7 @@ const question = {
 }
 const remoteQuestion = {
   id: 'remote:amex', kind: 'remote-input' as const, agent: 'amex', text: 'Enter the SMS code',
-  link: null, actions: ['continue', 'skip'],
+  reason: 'auth', link: null, actions: ['continue', 'skip'],
 }
 const totals = {
   currency: 'ILS',
@@ -70,6 +72,7 @@ beforeEach(() => {
     return Promise.resolve({ id: 'r1' })
   })
   vi.mocked(api.answerReview).mockResolvedValue(undefined)
+  vi.mocked(agentsApi.getAgents).mockResolvedValue({ agents: ['amex'] })
 })
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -78,6 +81,13 @@ afterEach(() => {
 })
 
 describe('ReviewPage', () => {
+  it('explains that no card agent is connected and offers no start', async () => {
+    vi.mocked(agentsApi.getAgents).mockResolvedValue({ agents: [] })
+    render(<ReviewPage />)
+    expect(await screen.findByRole('status')).toHaveTextContent('No card agents are connected yet.')
+    expect(screen.queryByRole('button', { name: 'Start review' })).toBeNull()
+  })
+
   it('runs a review from start to report on its events alone', async () => {
     const user = await startReview()
     expect(api.startReview).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}-\d{2}$/))

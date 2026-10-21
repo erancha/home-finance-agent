@@ -1,3 +1,6 @@
+/** Fired on window when the server answers 401: the sign-in ended, whatever the page was doing. */
+export const SIGNED_OUT_EVENT = 'hfm:signed-out'
+
 export class ApiException extends Error {
   readonly status: number
   readonly detail: unknown
@@ -45,6 +48,7 @@ async function send<T>(path: string, init?: RequestInit): Promise<T> {
     const body: unknown = await response.json().catch(() => null)
     const detail =
       typeof body === 'object' && body !== null && 'detail' in body ? body.detail : response.statusText
+    if (response.status === 401) window.dispatchEvent(new Event(SIGNED_OUT_EVENT))
     throw new ApiException(response.status, detail)
   }
   return (response.status === 204 ? undefined : await response.json()) as T

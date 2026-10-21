@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from hfm.application.event_sink import ReviewEventSink
 from hfm.platform.review_runner import ReviewGraph, ReviewRunner
-from hfm.ports import EventBus, ReviewEventStore, ReviewRepository
+from hfm.ports import EventBus, ReviewEventStore, ReviewRepository, TokenVerifier
 
 
 @dataclass(frozen=True)
@@ -26,6 +26,13 @@ class AppDeps:
     graph: ReviewGraph
     sessions: Callable[[], AsyncSession]
     """Opens database sessions; the readiness probe runs its query through it."""
+    verifier: TokenVerifier
+    """Checks the ID token behind every request."""
+    google_client_id: str
+    """The OAuth client the page signs people in with; published to the page, public."""
+    card_agents: tuple[str, ...]
+    """The registered card agents' names, in registry order; the page shows them and offers a
+    review only when there is at least one."""
 
 
 def get_deps(request: Request) -> AppDeps:

@@ -13,6 +13,7 @@ from langgraph.types import Command
 from hfm.application.event_sink import ReviewEventSink
 from hfm.application.questions import build_questions
 from hfm.application.review_graph import GraphDeps, build_review_graph, checkpoint_serde
+from hfm.application.user_token import current_user_token, with_user_token
 from hfm.domain.errors import AgentUnusableError, InvalidAnswersError, ReviewError
 from hfm.domain.events import (
     AGENT_DISCOVERED,
@@ -33,6 +34,7 @@ from hfm.domain.models import (
     Transaction,
 )
 from hfm.ports import (
+    SIGN_IN_REQUIRED,
     AgentEvent,
     AgentInfo,
     InputRequired,
@@ -59,6 +61,8 @@ TASK = TaskRef("amex", "t1", "c1")
 VISA_TASK = TaskRef("visa", "t7", "c7")
 BUDGET = Budget("ILS", {"groceries": Decimal(500), "dining": Decimal(100)})
 CONFIG: Any = {"configurable": {"thread_id": "r1"}}
+USER = "1001"
+USER_TOKEN = "eyJ-user-token-never-checkpointed"
 
 GROCERIES = make_tx(id="1", raw_merchant="שופרסל דיל", merchant="Shufersal", category="groceries")
 DINING = make_tx(id="2", raw_merchant="קפה גרג", merchant="Cafe Greg", category="dining")
@@ -109,8 +113,12 @@ def deps(
 
 
 async def run(h: Harness, payload: Any = None) -> dict[str, Any]:
-    start = {"month": MONTH}
-    result: dict[str, Any] = await h.graph.ainvoke(start if payload is None else payload, CONFIG)
+    """Invokes the graph the way the runner does: with the person's token in the run's context."""
+    start = {"month": MONTH, "user_id": USER}
+    with with_user_token(USER_TOKEN):
+        result: dict[str, Any] = await h.graph.ainvoke(
+            start if payload is None else payload, CONFIG
+        )
     return result
 
 
@@ -167,7 +175,8 @@ async def test_uncategorized_merchant_interrupts_then_resumes_and_remembers() ->
     result = await run(h, answer({f"cat:{UNKNOWN_KEY}": "dining"}))
 
     assert result["report"] == "canned report"
-    assert await h.memory.lookup([UNKNOWN_KEY]) == {UNKNOWN_KEY: "dining"}
+    assert await h.memory.lookup(USER, [UNKNOWN_KEY]) == {UNKNOWN_KEY: "dining"}
+    assert await h.memory.lookup("1002", [UNKNOWN_KEY]) == {}
     assert spent(result)["dining"] == UNKNOWN.amount
     assert (await h.event_types()).count(REVIEW_QUESTION) == 1
     assert (await h.event_data(REVIEW_TOTALS))[-1]["chosen"] == {"amex": [UNKNOWN.id]}
@@ -175,7 +184,7 @@ async def test_uncategorized_merchant_interrupts_then_resumes_and_remembers() ->
 
 async def test_memory_prevents_the_question_second_time() -> None:
     h = deps([batch(UNKNOWN), COMPLETED])
-    await h.memory.remember(UNKNOWN_KEY, "health")
+    await h.memory.remember(USER, UNKNOWN_KEY, "health")
 
     result = await run(h)
 
@@ -195,7 +204,7 @@ async def test_unanswered_merchant_stays_uncategorized_and_is_not_asked_again() 
 
     assert "__interrupt__" not in result
     assert spent(result)["uncategorized"] == UNKNOWN.amount + second.amount
-    assert await h.memory.lookup([UNKNOWN_KEY]) == {}
+    assert await h.memory.lookup(USER, [UNKNOWN_KEY]) == {}
     assert (await h.event_types()).count(REVIEW_QUESTION) == 1
 
 
@@ -213,12 +222,12 @@ async def test_low_confidence_guess_is_asked_and_kept_when_left_unanswered() -> 
     result = await run(h, answer({}))
 
     assert spent(result)["shopping"] == guess.amount
-    assert await h.memory.lookup([merchant_key(guess.raw_merchant)]) == {}
+    assert await h.memory.lookup(USER, [merchant_key(guess.raw_merchant)]) == {}
 
 
 async def test_remembered_category_outranks_the_agent_category() -> None:
     h = deps([batch(GROCERIES), COMPLETED])
-    await h.memory.remember(merchant_key(GROCERIES.raw_merchant), "health")
+    await h.memory.remember(USER, merchant_key(GROCERIES.raw_merchant), "health")
 
     result = await run(h)
 
@@ -295,7 +304,7 @@ async def test_two_agents_continue_refetches_only_the_waiting_one() -> None:
 async def test_review_fails_without_card_agents() -> None:
     h = deps(agents=())
 
-    with pytest.raises(ReviewError, match="no card agents configured"):
+    with pytest.raises(ReviewError, match="no card agents are connected"):
         await run(h)
 
 
@@ -309,7 +318,7 @@ async def test_one_agent_failing_its_task_fails_the_review_naming_it() -> None:
     )
     h = deps(client=client, agents=(AMEX, VISA))
 
-    with pytest.raises(ReviewError, match="^amex: statement file is unreadable"):
+    with pytest.raises(ReviewError, match="^amex statement file is unreadable"):
         await run(h)
 
 
@@ -363,7 +372,7 @@ def stored_bytes(saver: InMemorySaver) -> list[bytes]:
     return found
 
 
-async def test_no_checkpoint_or_pending_write_holds_an_agent_token() -> None:
+async def test_no_checkpoint_or_pending_write_holds_an_agent_or_user_token() -> None:
     token = "tok-3f9c1e-never-checkpointed"
     agent = AgentConfig("amex", "http://amex.test", token, "http://localhost:8020")
     h = deps([NEEDS_CODE], [batch(GROCERIES), COMPLETED], agents=(agent,))
@@ -371,9 +380,39 @@ async def test_no_checkpoint_or_pending_write_holds_an_agent_token() -> None:
     await run(h)
     await run(h, answer({"remote:amex": "continue"}))
 
+    assert h.client.tokens == [USER_TOKEN, USER_TOKEN]
     blobs = stored_bytes(h.saver)
     assert any(GROCERIES.raw_merchant.encode() in blob for blob in blobs)
+    assert any(USER.encode() in blob for blob in blobs)
     assert not [blob for blob in blobs if token.encode() in blob]
+    assert not [blob for blob in blobs if USER_TOKEN.encode() in blob]
+
+
+async def test_a_fetch_without_a_signed_in_person_is_a_bug_not_a_review_failure() -> None:
+    h = deps([batch(GROCERIES), COMPLETED])
+    with pytest.raises(LookupError):
+        await h.graph.ainvoke({"month": MONTH, "user_id": USER}, CONFIG)
+    with pytest.raises(LookupError):
+        current_user_token()
+
+
+async def test_sign_in_required_pauses_with_continue_only_and_the_continue_refetches() -> None:
+    sign_in = InputRequired(
+        "amex", TASK, "amex-agent could not verify who you are (expired).", SIGN_IN_REQUIRED,
+        MONTH, None,
+    )
+    h = deps([sign_in], [batch(GROCERIES), COMPLETED])
+
+    paused = await run(h)
+    [question] = paused["__interrupt__"][0].value["questions"]
+    assert question["reason"] == SIGN_IN_REQUIRED
+    assert question["actions"] == ["continue"]
+    assert question["link"] is None
+
+    result = await run(h, answer({"remote:amex": "continue"}))
+
+    assert h.client.calls == [("amex", MONTH, None), ("amex", MONTH, TASK)]
+    assert result["transactions"] == [GROCERIES]
 
 
 async def test_resuming_after_the_agent_left_the_config_fails_naming_it() -> None:
@@ -408,6 +447,7 @@ def test_checkpoint_serde_round_trips_review_state() -> None:
     serde = checkpoint_serde()
     installment_tx = make_tx(installment=Installment(2, 6))
     state = {
+        "user_id": USER,
         "agents": ["amex"],
         "infos": {"amex": AMEX_INFO},
         "tasks": {"amex": TASK},
@@ -434,6 +474,6 @@ async def test_a_completed_review_recategorizes_a_merchant_and_rewrites_the_repo
 
     assert spent(result) == {"groceries": GROCERIES.amount + DINING.amount, "dining": 0}
     assert result["recategorize"] == {}
-    assert await h.memory.lookup([dining_key]) == {dining_key: "groceries"}
+    assert await h.memory.lookup(USER, [dining_key]) == {dining_key: "groceries"}
     assert len(h.client.calls) == 1
     assert (await h.event_types())[-2:] == [REVIEW_TOTALS, REVIEW_REPORT]

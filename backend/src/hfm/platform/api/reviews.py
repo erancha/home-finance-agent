@@ -1,6 +1,6 @@
 """REST routes that start reviews, report their state, accept answers to their questions,
 recategorize the merchants of a completed review, clear a review to free its month, and say whether
-a month has a review and whether one may start."""
+a month has a review and whether one may start; every one of them for the signed-in person."""
 from __future__ import annotations
 
 import math
@@ -12,6 +12,7 @@ from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse
 
 from hfm.domain.errors import InvalidAnswersError
+from hfm.platform.api.auth import CurrentSession
 from hfm.platform.api.schemas import (
     MONTH_PATTERN,
     AnswersRequest,
@@ -34,38 +35,46 @@ months_router = APIRouter(prefix="/api/months")
 
 
 @router.post("", status_code=status.HTTP_202_ACCEPTED)
-async def start_review(body: StartReviewRequest, runner: Runner) -> StartReviewResponse:
-    return StartReviewResponse(id=await runner.start(body.month))
+async def start_review(
+    body: StartReviewRequest, runner: Runner, session: CurrentSession
+) -> StartReviewResponse:
+    return StartReviewResponse(id=await runner.start(session.user, body.month, session.token))
 
 
 @router.get("/{review_id}")
-async def get_review(review_id: str, runner: Runner) -> ReviewResponse:
-    return ReviewResponse.from_view(await runner.status(review_id))
+async def get_review(review_id: str, runner: Runner, session: CurrentSession) -> ReviewResponse:
+    return ReviewResponse.from_view(await runner.status(session.user, review_id))
 
 
 @router.post("/{review_id}/answers", status_code=status.HTTP_204_NO_CONTENT)
-async def answer_review(review_id: str, body: AnswersRequest, runner: Runner) -> Response:
-    await runner.answer(review_id, body.answers)
+async def answer_review(
+    review_id: str, body: AnswersRequest, runner: Runner, session: CurrentSession
+) -> Response:
+    await runner.answer(session.user, review_id, body.answers, session.token)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/{review_id}/categories", status_code=status.HTTP_204_NO_CONTENT)
-async def recategorize_review(review_id: str, body: CategoriesRequest, runner: Runner) -> Response:
-    await runner.recategorize(review_id, body.categories)
+async def recategorize_review(
+    review_id: str, body: CategoriesRequest, runner: Runner, session: CurrentSession
+) -> Response:
+    await runner.recategorize(session.user, review_id, body.categories)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete("/{review_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def clear_review(review_id: str, runner: Runner) -> Response:
-    await runner.clear(review_id)
+async def clear_review(review_id: str, runner: Runner, session: CurrentSession) -> Response:
+    await runner.clear(session.user, review_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @months_router.get("/{month}")
 async def get_month(
-    month: Annotated[str, PathParam(pattern=MONTH_PATTERN)], runner: Runner
+    month: Annotated[str, PathParam(pattern=MONTH_PATTERN)],
+    runner: Runner,
+    session: CurrentSession,
 ) -> MonthResponse:
-    return MonthResponse.from_view(await runner.month(month))
+    return MonthResponse.from_view(await runner.month(session.user, month))
 
 
 def register_error_handlers(app: FastAPI) -> None:

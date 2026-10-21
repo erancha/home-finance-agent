@@ -4,6 +4,8 @@ The stream subscribes to the review's bus channel before reading the log, so an 
 between the two arrives on the queue; queued events the replay already sent are skipped by
 sequence number. The log assigns sequences in commit order without gaps, so a replay holds every
 sequence up to its last. A reconnecting browser sends Last-Event-ID and gets only what follows it.
+Only the review's owner may subscribe; the session cookie identifies them, since the browser's
+event-stream object sends no headers.
 """
 from __future__ import annotations
 
@@ -16,6 +18,7 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import StreamingResponse
 
 from hfm.application.event_sink import review_channel
+from hfm.platform.api.auth import CurrentSession
 from hfm.platform.dependencies import Deps, Runner, Shutdown
 from hfm.ports import EventBus, ReviewEventStore
 
@@ -79,10 +82,11 @@ async def review_events(
     runner: Runner,
     deps: Deps,
     shutdown: Shutdown,
+    session: CurrentSession,
     last_event_id: Annotated[int | None, Header()] = None,
 ) -> StreamingResponse:
     """Last-Event-ID is absent on a first connection, which replays the whole log."""
-    await runner.review(review_id)
+    await runner.review(session.user, review_id)
     after_seq = 0 if last_event_id is None else last_event_id
     return StreamingResponse(
         review_frames(request, deps.events, deps.bus, review_id, after_seq, shutdown),

@@ -26,6 +26,9 @@ class RemoteInputQuestion:
     id: str
     agent: str
     text: str
+    reason: str
+    """Why the agent stopped, in its own words: statement-missing, sign-in-required, or another
+    reason of its own; the page picks what to offer by it."""
     link: str | None
     """The agent's page where the person resolves the request, as a browser opens it."""
     actions: tuple[str, ...]
@@ -50,6 +53,7 @@ def question_to_dict(q: Question) -> dict[str, Any]:
                 "kind": "remote-input",
                 "agent": q.agent,
                 "text": q.text,
+                "reason": q.reason,
                 "link": q.link,
                 "actions": list(q.actions),
             }

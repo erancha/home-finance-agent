@@ -8,14 +8,18 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hfm.domain.models import Review, ReviewStatus
+from hfm.platform.api.auth import COOKIE
 from hfm.platform.app import AppDeps, create_app
 from hfm.platform.review_runner import DAILY_REVIEW_LIMIT, ReviewRunner
 from hfm.ports import CardAgentClient
 from tests.platform.support import (
     CATEGORY_QUESTION,
     COMPLETED,
+    DANA,
+    DANA_TOKEN,
     GROCERIES,
     MONTH,
+    NOAM_TOKEN,
     REMOTE_QUESTION,
     REPORT,
     UNKNOWN_KEY,
@@ -64,6 +68,7 @@ def new_api() -> Iterator[NewApi]:
         def build(card_client: CardAgentClient) -> Api:
             deps = app_deps(card_client)
             client = stack.enter_context(TestClient(create_app(deps=deps)))
+            client.cookies.set(COOKIE, DANA_TOKEN)
             return Api(client, deps)
 
         yield build
@@ -98,7 +103,7 @@ def test_unknown_review_is_404(new_api: NewApi) -> None:
 
 def test_answering_a_review_that_is_not_waiting_is_409(new_api: NewApi) -> None:
     api = new_api(scripted())
-    running = Review("r-running", MONTH, ReviewStatus.RUNNING, datetime.now(UTC))
+    running = Review("r-running", DANA.id, MONTH, ReviewStatus.RUNNING, datetime.now(UTC))
     api.call(api.deps.reviews.add, running)
 
     response = api.client.post("/api/reviews/r-running/answers", json={"answers": {}})
@@ -193,7 +198,7 @@ def test_a_start_beyond_the_daily_limit_is_429_with_retry_after(new_api: NewApi)
     api = new_api(scripted())
     an_hour_ago = datetime.now(UTC) - timedelta(hours=1)
     for n in range(DAILY_REVIEW_LIMIT):
-        review = Review(f"r-{n}", f"2025-0{n + 1}", ReviewStatus.FAILED, an_hour_ago)
+        review = Review(f"r-{n}", DANA.id, f"2025-0{n + 1}", ReviewStatus.FAILED, an_hour_ago)
         api.call(api.deps.reviews.add, review)
 
     response = api.client.post("/api/reviews", json={"month": MONTH})
@@ -214,3 +219,14 @@ def test_the_month_route_names_its_review_and_the_starts_left(new_api: NewApi) -
         "nextStart": None,
     }
     assert api.client.get("/api/months/2026-13").status_code == 422
+
+
+def test_another_persons_review_is_404_and_their_month_is_free(new_api: NewApi) -> None:
+    api = new_api(scripted([batch(GROCERIES), COMPLETED]))
+    review_id = api.start()
+
+    api.client.cookies.set(COOKIE, NOAM_TOKEN)
+    assert api.client.get(f"/api/reviews/{review_id}").status_code == 404
+    assert api.client.delete(f"/api/reviews/{review_id}").status_code == 404
+    assert api.client.get(f"/api/reviews/{review_id}/events").status_code == 404
+    assert api.client.get(f"/api/months/{MONTH}").json()["review"] is None

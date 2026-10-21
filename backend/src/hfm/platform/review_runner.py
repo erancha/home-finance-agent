@@ -1,16 +1,21 @@
 """Starts review graphs, resumes them with validated answers and reports their state.
 
 Core building blocks:
-- ReviewRunner: start, answer, recategorize, clear, status and month for the API; every graph
-  invocation runs as a background task so a request returns as soon as the review is recorded
+- ReviewRunner: start, answer, recategorize, clear, status and month for the API, each on behalf of
+  the signed-in person; every graph invocation runs as a background task so a request returns as
+  soon as the review is recorded
 - ReviewView: a review's record joined with what its checkpoint knows (questions, totals, report)
 - MonthView: whether a month has a standing review and whether a review may start now
 - ReviewNotFoundError, ReviewConflictError, MonthReviewedError, DailyLimitError: the refusals the
   API maps to 404, 409, 409 and 429; a conflict is a review whose status does not allow the request
 
-Every start fetches from the card agents and has a model write the report, so starts are rationed:
-a month has one standing review until the person clears it, and at most DAILY_REVIEW_LIMIT reviews
-start in any REVIEW_LIMIT_WINDOW, cleared ones included. A cleared review is gone to the API.
+Every start fetches from the card agents and has a model write the report, so starts are rationed
+per person: a person's month has one standing review until they clear it, and at most
+DAILY_REVIEW_LIMIT of their reviews start in any REVIEW_LIMIT_WINDOW, cleared ones included. A
+cleared review is gone to the API, and so is another person's review: both are not found.
+
+A run that reaches a card agent carries the person's ID token in a run-scoped context variable,
+set around the invocation and never written anywhere.
 
 A review's status follows its latest invocation: RUNNING while one is in flight, WAITING when it
 stopped at the question interrupt, COMPLETED when the graph reached its end, FAILED when it
@@ -23,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -35,9 +41,10 @@ from langgraph.types import Command
 from hfm.application.event_sink import ReviewEventSink
 from hfm.application.questions import validate_answers, validate_categories
 from hfm.application.review_graph import ReviewState
+from hfm.application.user_token import with_user_token
 from hfm.domain.errors import ReviewError
 from hfm.domain.events import REVIEW_FAILED, ReviewEvent
-from hfm.domain.models import CategoryTotal, Review, ReviewStatus
+from hfm.domain.models import CategoryTotal, Review, ReviewStatus, User
 from hfm.ports import ReviewRepository
 
 log = structlog.get_logger(__name__)
@@ -130,27 +137,27 @@ class ReviewRunner:
         # completed review is rerun once and concurrent starts cannot exceed the rations.
         self._status_lock = asyncio.Lock()
 
-    async def start(self, month: str) -> str:
-        """Raises MonthReviewedError when the month has a review that is not cleared, and
-        DailyLimitError when the window's starts are used up."""
+    async def start(self, user: User, month: str, token: str) -> str:
+        """Raises MonthReviewedError when the person's month has a review that is not cleared,
+        and DailyLimitError when their window's starts are used up."""
         async with self._status_lock:
             now = datetime.now(UTC)
-            view = await self._month_view(month, now)
+            view = await self._month_view(user, month, now)
             if view.review is not None:
                 raise MonthReviewedError(month, view.review.id)
             if view.next_start is not None:
                 raise DailyLimitError(view.limit, view.next_start)
             review_id = str(uuid.uuid4())
-            await self._reviews.add(Review(review_id, month, ReviewStatus.RUNNING, now))
-        self._schedule(review_id, {"month": month})
+            await self._reviews.add(Review(review_id, user.id, month, ReviewStatus.RUNNING, now))
+        self._schedule(review_id, {"month": month, "user_id": user.id}, token)
         return review_id
 
-    async def month(self, month: str) -> MonthView:
-        return await self._month_view(month, datetime.now(UTC))
+    async def month(self, user: User, month: str) -> MonthView:
+        return await self._month_view(user, month, datetime.now(UTC))
 
-    async def _month_view(self, month: str, now: datetime) -> MonthView:
-        standing = await self._reviews.standing_for_month(month)
-        recent = await self._reviews.list_created_since(now - REVIEW_LIMIT_WINDOW)
+    async def _month_view(self, user: User, month: str, now: datetime) -> MonthView:
+        standing = await self._reviews.standing_for_month(user.id, month)
+        recent = await self._reviews.list_created_since(user.id, now - REVIEW_LIMIT_WINDOW)
         starts_left = max(self._daily_limit - len(recent), 0)
         next_start = None
         if starts_left == 0:
@@ -159,12 +166,15 @@ class ReviewRunner:
             next_start = freeing.created_at + REVIEW_LIMIT_WINDOW
         return MonthView(month, standing, self._daily_limit, starts_left, next_start)
 
-    async def answer(self, review_id: str, answers: Mapping[str, Any]) -> None:
+    async def answer(
+        self, user: User, review_id: str, answers: Mapping[str, Any], token: str
+    ) -> None:
         """Resume the paused review; raises InvalidAnswersError, leaving it paused, when an answer
         names no posed question or holds an illegal value, or a remote question is unanswered.
 
         The question event goes out before the run reaches its pause, so an answer that arrives
-        while the run is in flight waits for it to settle instead of being refused.
+        while the run is in flight waits for it to settle instead of being refused. The token is
+        the one a continued fetch forwards, fresh from the person's current sign-in.
         """
         running = self._runs.get(review_id)
         if running is not None:
@@ -176,39 +186,42 @@ class ReviewRunner:
                     f"still running after {self._settle_seconds:g} s, not waiting for answers",
                 )
         async with self._status_lock:
-            review = await self.review(review_id)
+            review = await self.review(user, review_id)
             if review.status != ReviewStatus.WAITING:
                 raise ReviewConflictError(review_id, review.status, "not waiting for answers")
             snapshot = await self._graph.aget_state(_config(review_id))
             validate_answers(snapshot.values["questions"], answers)
             await self._reviews.set_status(review_id, ReviewStatus.RUNNING)
-        self._schedule(review_id, Command(resume={"answers": dict(answers)}))
+        self._schedule(review_id, Command(resume={"answers": dict(answers)}), token)
 
-    async def recategorize(self, review_id: str, categories: Mapping[str, Any]) -> None:
+    async def recategorize(
+        self, user: User, review_id: str, categories: Mapping[str, Any]
+    ) -> None:
         """Rerun a completed review with categories chosen for its merchants: they are remembered,
         the totals recomputed and the report rewritten. Raises InvalidAnswersError, leaving the
         review completed, for a merchant not in the review or an illegal category.
         """
         async with self._status_lock:
-            review = await self.review(review_id)
+            review = await self.review(user, review_id)
             if review.status != ReviewStatus.COMPLETED:
                 raise ReviewConflictError(review_id, review.status, "not completed")
             snapshot = await self._graph.aget_state(_config(review_id))
             chosen = validate_categories(snapshot.values["transactions"], categories)
             await self._reviews.set_status(review_id, ReviewStatus.RUNNING)
-        self._schedule(review_id, {"recategorize": chosen})
+        # Recategorizing reaches no card agent, so the run needs no token.
+        self._schedule(review_id, {"recategorize": chosen}, None)
 
-    async def clear(self, review_id: str) -> None:
+    async def clear(self, user: User, review_id: str) -> None:
         """Free the review's month for a new review; the review is gone to the API afterwards.
         A RUNNING review is refused, since its invocation would go on writing to it."""
         async with self._status_lock:
-            review = await self.review(review_id)
+            review = await self.review(user, review_id)
             if review.status == ReviewStatus.RUNNING:
                 raise ReviewConflictError(review_id, review.status, "still running")
             await self._reviews.clear(review_id, datetime.now(UTC))
 
-    async def status(self, review_id: str) -> ReviewView:
-        review = await self.review(review_id)
+    async def status(self, user: User, review_id: str) -> ReviewView:
+        review = await self.review(user, review_id)
         snapshot = await self._graph.aget_state(_config(review_id))
         # Nodes fill the state as the review progresses, so early on these keys are absent.
         values = snapshot.values
@@ -238,12 +251,15 @@ class ReviewRunner:
             log.warning("failing a review interrupted by a restart", review_id=review.id)
             await self._fail(review.id, INTERRUPTED_MESSAGE)
 
-    async def review(self, review_id: str) -> Review:
-        """The review unless it is unknown or cleared, both of which raise ReviewNotFoundError."""
+    async def review(self, user: User, review_id: str) -> Review:
+        """The person's review unless it is unknown, another person's or cleared, all of which
+        raise ReviewNotFoundError; another person's review looks exactly like an unknown one."""
         try:
             review = await self._reviews.get(review_id)
         except KeyError as error:
             raise ReviewNotFoundError(review_id) from error
+        if review.user_id != user.id:
+            raise ReviewNotFoundError(review_id)
         if review.cleared_at is not None:
             raise ReviewNotFoundError(review_id, "was cleared")
         return review
@@ -261,15 +277,20 @@ class ReviewRunner:
             task.cancel()
         await asyncio.gather(*runs, return_exceptions=True)
 
-    def _schedule(self, review_id: str, graph_input: ReviewState | Command[Any]) -> None:
+    def _schedule(
+        self, review_id: str, graph_input: ReviewState | Command[Any], token: str | None
+    ) -> None:
         assert review_id not in self._runs, f"review {review_id!r} already has a run in flight"
-        task = asyncio.create_task(self._run(review_id, graph_input))
+        task = asyncio.create_task(self._run(review_id, graph_input, token))
         self._runs[review_id] = task
         task.add_done_callback(lambda done: self._forget(review_id, done))
 
-    async def _run(self, review_id: str, graph_input: ReviewState | Command[Any]) -> None:
+    async def _run(
+        self, review_id: str, graph_input: ReviewState | Command[Any], token: str | None
+    ) -> None:
         try:
-            result = await self._graph.ainvoke(graph_input, _config(review_id), version="v2")
+            with with_user_token(token) if token is not None else nullcontext():
+                result = await self._graph.ainvoke(graph_input, _config(review_id), version="v2")
         except Exception as error:
             log.error("review failed", review_id=review_id, exc_info=error)
             await self._fail(review_id, failure_message(error))

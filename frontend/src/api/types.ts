@@ -1,5 +1,14 @@
 export type ReviewStatus = 'running' | 'waiting' | 'completed' | 'failed'
 
+/** The signed-in person as their Google account describes them; id is the stable account id. */
+export interface User {
+  id: string
+  email: string | null
+  name: string | null
+}
+
+export const SIGN_IN_REQUIRED = 'sign-in-required'
+
 export interface Installment {
   number: number
   total: number
@@ -39,6 +48,8 @@ export interface RemoteInputQuestion {
   kind: 'remote-input'
   agent: string
   text: string
+  /** Why the agent stopped: 'statement-missing', 'sign-in-required' or a reason of its own. */
+  reason: string
   /** The agent's own page where the person resolves the request; null when it has none. */
   link: string | null
   actions: string[]

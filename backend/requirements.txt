@@ -36,7 +36,9 @@ charset-normalizer==3.5.2
 click==8.5.0
     # via uvicorn
 cryptography==50.0.2
-    # via google-auth
+    # via
+    #   google-auth
+    #   pyjwt
 distro==1.9.0
     # via langsmith
 docstring-parser==0.18.0
@@ -190,6 +192,10 @@ pydantic-core==2.50.1
     # via pydantic
 pydantic-settings==2.15.0
     # via hfm (pyproject.toml)
+pyjwt[crypto]==2.15.1
+    # via
+    #   hfm (pyproject.toml)
+    #   pyjwt
 python-dotenv==1.2.4
     # via
     #   pydantic-settings

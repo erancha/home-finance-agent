@@ -1,8 +1,13 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
-import { afterEach } from 'vitest'
+import { afterEach, beforeEach } from 'vitest'
+import { FakeGoogleIdentity } from './fakeGoogle.ts'
 
 afterEach(cleanup)
+// The Google sign-in script never loads in tests; its stand-in is in place before any render.
+beforeEach(() => {
+  FakeGoogleIdentity.install()
+})
 
 // Recharts' ResponsiveContainer measures itself through ResizeObserver, which jsdom lacks, and
 // jsdom lays nothing out. The stub reports one fixed size on observe so charts render their marks.

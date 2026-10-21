@@ -11,26 +11,53 @@ from pydantic import SecretStr
 from hfm.adapters.postgres.repositories import PostgresReviewRepository
 from hfm.domain.events import REVIEW_FAILED
 from hfm.domain.models import Review, ReviewStatus
+from hfm.platform.api.auth import COOKIE
 from hfm.platform.app import create_app
 from hfm.platform.config import Settings
 from hfm.platform.db import build_engine, session_factory
 from hfm.platform.review_runner import INTERRUPTED_MESSAGE, ReviewRunner
-from tests.platform.support import MONTH, OTHER_MONTH, app_deps, scripted
+from tests.auth_keys import CLIENT_ID, PUBLIC_PEM, sign
+from tests.platform.support import DANA, MONTH, OTHER_MONTH, app_deps, scripted
 
 REPO_CONFIG = Path(__file__).resolve().parents[3] / "config"
 
 
 UNREACHABLE_DATABASE = "postgresql+psycopg://u:p@127.0.0.1:1/d"
 
+# One card agent nobody listens on, so a review fails at discovery.
+REGISTRY = """agents:
+  - name: amex
+    url: http://127.0.0.1:1
+    browser_url: http://localhost:8020
+    shared_secret: token
+"""
 
-def settings(database_url: str = UNREACHABLE_DATABASE, **extra: Any) -> Settings:
+
+@pytest.fixture(scope="module")
+def registry(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    path = tmp_path_factory.mktemp("registry") / "card-agents.yaml"
+    path.write_text(REGISTRY)
+    return path
+
+
+@pytest.fixture(scope="module")
+def public_key(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    pem = tmp_path_factory.mktemp("auth") / "public.pem"
+    pem.write_bytes(PUBLIC_PEM)
+    return pem
+
+
+def settings(
+    database_url: str = UNREACHABLE_DATABASE, public_key: Path | None = None,
+    registry: Path = Path("/nonexistent/card-agents.yaml"), **extra: Any
+) -> Settings:
     return Settings(
         database_url=SecretStr(database_url),
         hfm_e2e=True,
-        amex_agent_token=SecretStr("token"),
-        amex_agent_url="http://127.0.0.1:1",
-        agents_config=REPO_CONFIG / "agents.yaml",
+        card_agents_file=registry,
         budget_config=REPO_CONFIG / "budget.yaml",
+        google_client_id=CLIENT_ID,
+        auth_public_key_file=public_key,
         **extra,
     )
 
@@ -79,10 +106,16 @@ def test_frontend_dist_without_index_fails_startup_naming_it(tmp_path: Path) -> 
 
 
 @pytest.mark.usefixtures("restore_logging")
-def test_production_wiring_records_a_failed_review_in_postgres(pg_url: str) -> None:
-    """The canned report and an Amex URL nobody listens on: the review fails at discovery."""
-    with TestClient(create_app(settings(pg_url))) as client:
+def test_production_wiring_records_a_failed_review_in_postgres(
+    pg_url: str, public_key: Path, registry: Path
+) -> None:
+    """The canned report and a card agent nobody listens on: the review fails at discovery. The
+    person signs in with a token the configured public key verifies."""
+    with TestClient(create_app(settings(pg_url, public_key, registry))) as client:
         assert client.get("/ready").status_code == 200
+        assert client.get("/api/auth/me").status_code == 401
+        signed_in = client.post("/api/auth/session", json={"credential": sign()})
+        assert signed_in.json()["email"] == "dana@example.com"
         review_id = client.post("/api/reviews", json={"month": MONTH}).json()["id"]
         app = client.app
         assert isinstance(app, FastAPI)
@@ -96,17 +129,20 @@ def test_production_wiring_records_a_failed_review_in_postgres(pg_url: str) -> N
 
 
 @pytest.mark.usefixtures("restore_logging")
-async def test_startup_fails_a_review_a_stopped_server_left_running(pg_url: str) -> None:
+async def test_startup_fails_a_review_a_stopped_server_left_running(
+    pg_url: str, public_key: Path
+) -> None:
     engine = build_engine(pg_url)
     try:
         stamp = datetime(2026, 10, 1, tzinfo=UTC)
         await PostgresReviewRepository(session_factory(engine)).add(
-            Review("r-interrupted", OTHER_MONTH, ReviewStatus.RUNNING, stamp)
+            Review("r-interrupted", DANA.id, OTHER_MONTH, ReviewStatus.RUNNING, stamp)
         )
     finally:
         await engine.dispose()
 
-    with TestClient(create_app(settings(pg_url))) as client:
+    with TestClient(create_app(settings(pg_url, public_key))) as client:
+        client.cookies.set(COOKIE, sign())
         view = client.get("/api/reviews/r-interrupted").json()
         app = client.app
         assert isinstance(app, FastAPI)

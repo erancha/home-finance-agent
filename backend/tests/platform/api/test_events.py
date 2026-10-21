@@ -24,11 +24,13 @@ from hfm.domain.events import (
     REVIEW_TOTALS,
     ReviewEvent,
 )
+from hfm.platform.api.auth import COOKIE
 from hfm.platform.api.events import review_frames, sse_frame
 from hfm.platform.app import SHUTDOWN_SIGNALS, create_app, signal_shutdown
 from tests.fakes import InMemoryEventBus, InMemoryReviewEventStore
 from tests.platform.support import (
     CATEGORY_QUESTION,
+    DANA_TOKEN,
     EVENT_TIME,
     MONTH,
     UNKNOWN_MERCHANT,
@@ -53,7 +55,11 @@ def serve(app: FastAPI) -> Iterator[httpx.Client]:
         assert time.monotonic() < deadline, "uvicorn did not start"
         time.sleep(0.01)
     try:
-        with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=DEADLINE_SECONDS) as client:
+        with httpx.Client(
+            base_url=f"http://127.0.0.1:{port}",
+            timeout=DEADLINE_SECONDS,
+            cookies={COOKIE: DANA_TOKEN},
+        ) as client:
             yield client
     finally:
         server.should_exit = True
@@ -173,7 +179,9 @@ async def test_sigterm_ends_open_streams_so_the_lifespan_teardown_runs() -> None
     opened = threading.Event()
 
     def watch_stream() -> int:
-        with httpx.Client(base_url=base, timeout=DEADLINE_SECONDS) as client:
+        with httpx.Client(
+            base_url=base, timeout=DEADLINE_SECONDS, cookies={COOKIE: DANA_TOKEN}
+        ) as client:
             review_id = client.post("/api/reviews", json={"month": MONTH}).json()["id"]
             with client.stream("GET", f"/api/reviews/{review_id}/events") as response:
                 opened.set()
@@ -258,3 +266,6 @@ def test_events_replays_persisted_events_before_tailing() -> None:
         ) as response:
             resumed = until(frames(response.iter_lines()), REVIEW_REPORT)
         assert [frame["seq"] for frame in resumed] == [last_question + 1, last_question + 2]
+
+        anonymous = httpx.get(f"{client.base_url}/api/reviews/{review_id}/events")
+        assert anonymous.status_code == 401
