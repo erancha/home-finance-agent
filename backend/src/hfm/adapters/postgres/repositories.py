@@ -1,9 +1,10 @@
 """Postgres implementations of the persistence ports.
 
 Core building blocks:
-- PostgresReviewRepository: review rows; a unique index keeps one review per month uncleared
+- PostgresReviewRepository: review rows; a unique index keeps one review per user and month
+  uncleared
 - PostgresReviewEventStore: per-review event log, sequence assigned under a review row lock
-- PostgresMerchantMemory: merchant key to category upserts
+- PostgresMerchantMemory: per-user merchant key to category upserts
 
 Each call runs in its own session; a write commits before the call returns.
 """
@@ -35,6 +36,7 @@ class PostgresReviewRepository:
                 session.add(
                     ReviewRow(
                         id=review.id,
+                        user_id=review.user_id,
                         month=review.month,
                         status=review.status.value,
                         created_at=review.created_at,
@@ -44,7 +46,8 @@ class PostgresReviewRepository:
         except IntegrityError as error:
             if getattr(error.orig, "sqlstate", None) == UNIQUE_VIOLATION:
                 raise ValueError(
-                    f"review {review.id} or a standing review of {review.month} already exists"
+                    f"review {review.id} or a standing review of {review.month} for user"
+                    f" {review.user_id} already exists"
                 ) from error
             raise
 
@@ -72,18 +75,22 @@ class PostgresReviewRepository:
             )
             return [_review(row) for row in rows]
 
-    async def standing_for_month(self, month: str) -> Review | None:
+    async def standing_for_month(self, user_id: str, month: str) -> Review | None:
         async with self._sessions() as session:
             row = await session.scalar(
-                select(ReviewRow).where(ReviewRow.month == month, ReviewRow.cleared_at.is_(None))
+                select(ReviewRow).where(
+                    ReviewRow.user_id == user_id,
+                    ReviewRow.month == month,
+                    ReviewRow.cleared_at.is_(None),
+                )
             )
         return None if row is None else _review(row)
 
-    async def list_created_since(self, since: datetime) -> list[Review]:
+    async def list_created_since(self, user_id: str, since: datetime) -> list[Review]:
         async with self._sessions() as session:
             rows = await session.scalars(
                 select(ReviewRow)
-                .where(ReviewRow.created_at >= since)
+                .where(ReviewRow.user_id == user_id, ReviewRow.created_at >= since)
                 .order_by(ReviewRow.created_at)
             )
             return [_review(row) for row in rows]
@@ -100,6 +107,7 @@ class PostgresReviewRepository:
 def _review(row: ReviewRow) -> Review:
     return Review(
         id=row.id,
+        user_id=row.user_id,
         month=row.month,
         status=ReviewStatus(row.status),
         created_at=row.created_at,
@@ -144,19 +152,22 @@ class PostgresMerchantMemory:
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         self._sessions = sessions
 
-    async def lookup(self, keys: Iterable[str]) -> dict[str, str]:
+    async def lookup(self, user_id: str, keys: Iterable[str]) -> dict[str, str]:
         async with self._sessions() as session:
             rows = await session.execute(
                 select(MerchantMemoryRow.merchant_key, MerchantMemoryRow.category).where(
-                    MerchantMemoryRow.merchant_key.in_(list(keys))
+                    MerchantMemoryRow.user_id == user_id,
+                    MerchantMemoryRow.merchant_key.in_(list(keys)),
                 )
             )
             return {key: category for key, category in rows}
 
-    async def remember(self, key: str, category: str) -> None:
-        statement = insert(MerchantMemoryRow).values(merchant_key=key, category=category)
+    async def remember(self, user_id: str, key: str, category: str) -> None:
+        statement = insert(MerchantMemoryRow).values(
+            user_id=user_id, merchant_key=key, category=category
+        )
         statement = statement.on_conflict_do_update(
-            index_elements=[MerchantMemoryRow.merchant_key],
+            index_elements=[MerchantMemoryRow.user_id, MerchantMemoryRow.merchant_key],
             set_={"category": category, "updated_at": func.now()},
         )
         async with self._sessions.begin() as session:

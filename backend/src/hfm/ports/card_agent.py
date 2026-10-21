@@ -3,7 +3,7 @@
 Core building blocks:
 - AgentInfo: what discovery reveals about a card agent
 - Agent events: the stream a month fetch yields (status, batches, input requests, terminal states)
-- CardAgentClient: discovery plus the streaming month fetch
+- CardAgentClient: discovery plus the streaming month fetch, made on behalf of a signed-in person
 """
 
 from __future__ import annotations
@@ -40,12 +40,18 @@ class TransactionsBatch:
     transactions: tuple[Transaction, ...]
 
 
+SIGN_IN_REQUIRED = "sign-in-required"
+"""Reason of an InputRequired raised because the agent could not verify the person's token; the
+person signs in again and continues, and the continue carries the fresh token."""
+
+
 @dataclass(frozen=True)
 class InputRequired:
     agent: str
     task: TaskRef
     text: str
     reason: str
+    """The agent's reason, such as statement-missing or SIGN_IN_REQUIRED."""
     month: str
     page: str | None
     """Path on the agent's own origin of a page where a person resolves the request; None when
@@ -75,10 +81,11 @@ class CardAgentClient(Protocol):
         ...
 
     def fetch_month(
-        self, agent: AgentConfig, month: str, resume: TaskRef | None
+        self, agent: AgentConfig, month: str, resume: TaskRef | None, user_token: str
     ) -> AsyncIterator[AgentEvent]:
         """Stream the events of one month fetch, ending with TaskCompleted or TaskFailed.
 
         A non-None resume continues the task of an earlier InputRequired instead of starting anew.
+        user_token is the signed-in person's ID token, forwarded so the agent serves their data.
         """
         ...

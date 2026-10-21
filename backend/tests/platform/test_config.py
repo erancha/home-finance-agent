@@ -5,7 +5,10 @@ from pydantic import ValidationError
 
 from hfm.platform.config import Settings
 
-REQUIRED = {"DATABASE_URL": "postgresql+psycopg://u:p@h:5434/d", "AMEX_AGENT_TOKEN": "secret"}
+REQUIRED = {
+    "DATABASE_URL": "postgresql+psycopg://u:p@h:5434/d",
+    "GOOGLE_CLIENT_ID": "123-abc.apps.googleusercontent.com",
+}
 
 
 @pytest.fixture
@@ -13,11 +16,13 @@ def env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     for key in (
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
-        "AMEX_AGENT_URL",
-        "AMEX_AGENT_BROWSER_URL",
+        "CARD_AGENTS_FILE",
         "HFM_FRONTEND_DIST",
         "LLM_MODEL",
         "HFM_E2E",
+        "AUTH_ISSUER",
+        "AUTH_JWKS_URL",
+        "AUTH_PUBLIC_KEY_FILE",
     ):
         monkeypatch.delenv(key, raising=False)
     for key, value in REQUIRED.items():
@@ -40,17 +45,14 @@ def test_the_end_to_end_test_needs_no_model_or_key(env: pytest.MonkeyPatch) -> N
     env.setenv("HFM_E2E", "true")
     settings = Settings()
     assert settings.hfm_e2e
-    assert settings.amex_agent_url == "http://localhost:8020"
-    assert settings.agents_config == Path("config/agents.yaml")
+    assert settings.card_agents_file == Path("backend/card-agents.yaml")
     assert settings.hfm_frontend_dist is None
 
 
-def test_browser_url_is_the_agent_url_unless_set(env: pytest.MonkeyPatch) -> None:
+def test_the_registry_path_is_configurable(env: pytest.MonkeyPatch) -> None:
     env.setenv("HFM_E2E", "true")
-    env.setenv("AMEX_AGENT_URL", "http://amex-agent:8020")
-    assert Settings().amex_browser_url() == "http://amex-agent:8020"
-    env.setenv("AMEX_AGENT_BROWSER_URL", "http://localhost:8020")
-    assert Settings().amex_browser_url() == "http://localhost:8020"
+    env.setenv("CARD_AGENTS_FILE", "/card-agents.yaml")
+    assert Settings().card_agents_file == Path("/card-agents.yaml")
 
 
 def test_anthropic_model_without_key_fails_naming_the_variable(env: pytest.MonkeyPatch) -> None:
@@ -84,8 +86,21 @@ def test_model_without_provider_prefix_fails(env: pytest.MonkeyPatch) -> None:
         Settings()
 
 
-def test_missing_agent_token_fails(env: pytest.MonkeyPatch) -> None:
+def test_missing_google_client_id_fails(env: pytest.MonkeyPatch) -> None:
     env.setenv("HFM_E2E", "true")
-    env.delenv("AMEX_AGENT_TOKEN")
-    with pytest.raises(ValidationError, match="amex_agent_token"):
+    env.delenv("GOOGLE_CLIENT_ID")
+    with pytest.raises(ValidationError, match="google_client_id"):
         Settings()
+
+
+def test_token_verification_defaults_to_google(env: pytest.MonkeyPatch) -> None:
+    env.setenv("HFM_E2E", "true")
+    settings = Settings()
+    assert settings.auth_issuer == "https://accounts.google.com"
+    assert settings.auth_jwks_url == "https://www.googleapis.com/oauth2/v3/certs"
+    assert settings.auth_public_key_file is None
+    env.setenv("AUTH_ISSUER", "hfm-e2e")
+    env.setenv("AUTH_PUBLIC_KEY_FILE", "/e2e/public.pem")
+    settings = Settings()
+    assert settings.auth_issuer == "hfm-e2e"
+    assert settings.auth_public_key_file == Path("/e2e/public.pem")

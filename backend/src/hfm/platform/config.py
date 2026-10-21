@@ -8,6 +8,7 @@ from typing import Self
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from hfm.adapters.google_tokens import GOOGLE_ISSUER, GOOGLE_JWKS_URL
 from hfm.adapters.report_writer import SUPPORTED_PROVIDERS
 
 
@@ -26,12 +27,18 @@ class Settings(BaseSettings):
     read, so the end-to-end test is deterministic and free."""
     anthropic_api_key: SecretStr | None = None
     openai_api_key: SecretStr | None = None
-    amex_agent_url: str = "http://localhost:8020"
-    amex_agent_token: SecretStr
-    amex_agent_browser_url: str | None = None
-    """Where a person's browser reaches amex-agent; unset means amex_agent_url, which is that
-    address whenever the home finance agent runs on the host rather than in Docker."""
-    agents_config: Path = Path("config/agents.yaml")
+    google_client_id: str
+    """The OAuth client of this agent's Sign in with Google button; the audience every token
+    must name."""
+    auth_issuer: str = GOOGLE_ISSUER
+    auth_jwks_url: str = GOOGLE_JWKS_URL
+    auth_public_key_file: Path | None = None
+    """Test only: a PEM public key that verifies tokens instead of the issuer's published keys,
+    so the end-to-end test signs its own tokens and never reaches Google."""
+    card_agents_file: Path = Path("backend/card-agents.yaml")
+    """The card-agent registry scripts/add-card-agent.sh writes; absent means no card agents.
+    Relative to the working directory: the repo root on the host, where compose mounts it in
+    Docker (it sets this key)."""
     budget_config: Path = Path("config/budget.yaml")
     hfm_frontend_dist: Path | None = None
 
@@ -53,11 +60,6 @@ class Settings(BaseSettings):
                 f"LLM_MODEL={self.llm_model} needs {_key_field(provider).upper()} to be set"
             )
         return self
-
-    def amex_browser_url(self) -> str:
-        if self.amex_agent_browser_url is None:
-            return self.amex_agent_url
-        return self.amex_agent_browser_url
 
     def report_model(self) -> tuple[str, str]:
         """The validated provider:model and its API key; only outside the end-to-end test."""

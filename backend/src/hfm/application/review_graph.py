@@ -2,14 +2,16 @@
 
 Core building blocks:
 - ReviewState: the checkpointed state, with reducers that merge results of parallel fetches;
-  it names agents and never holds their configs, so no token reaches a checkpoint
+  it names agents and never holds their configs, and the person's ID token reaches the fetch
+  through user_token, so no secret of either kind reaches a checkpoint
 - Nodes: discover, fetch_agent (one per agent), reconcile, pose, ask, recategorize, report
 - Routing: an initial fan-out to every agent, and after answers a fan-out only to agents told to
   continue, each resuming its own task; a completed review run again with categories goes
   straight to recategorize and report
 - checkpoint_serde: the checkpoint serializer that allows exactly the state's value types
 
-The review id is the checkpoint thread id; every node emits its events under it.
+The review id is the checkpoint thread id; every node emits its events under it. The state names
+the person who owns the review, whose merchant memory the review reads and extends.
 """
 from __future__ import annotations
 
@@ -40,6 +42,7 @@ from hfm.application.reconcile import (
     unsure_merchants,
 )
 from hfm.application.report import report_prompt
+from hfm.application.user_token import current_user_token
 from hfm.domain.errors import ReviewError
 from hfm.domain.events import (
     AGENT_DISCOVERED,
@@ -91,6 +94,8 @@ CHECKPOINTED_TYPES: tuple[type, ...] = (
 
 class ReviewState(TypedDict, total=False):
     month: str
+    user_id: str
+    """The Google account id of the person the review is for, fixed when it starts."""
     agents: list[str]
     """Names of the agents the review fetches from, fixed when it starts."""
     infos: Annotated[dict[str, AgentInfo], merge_dict]
@@ -188,7 +193,7 @@ def build_review_graph(
         return current
 
     def agent_config(name: str) -> AgentConfig:
-        """A paused review keeps its agent names while config/agents.yaml may change under it."""
+        """A paused review keeps its agent names while the registry may change under it."""
         if name not in deps.agents:
             raise ReviewError(f"{name} is no longer configured")
         return deps.agents[name]
@@ -196,7 +201,7 @@ def build_review_graph(
     async def discover(state: ReviewState) -> dict[str, Any]:
         """An unusable agent fails the whole review."""
         if not deps.agents:
-            raise ReviewError("no card agents configured")
+            raise ReviewError("no card agents are connected")
         infos: dict[str, AgentInfo] = {}
         for name, agent in deps.agents.items():
             info = await deps.card_client.discover(agent)
@@ -212,7 +217,9 @@ def build_review_graph(
         fetched: list[Transaction] = []
         task: TaskRef | None = None
         pending: InputRequired | None = None
-        stream = deps.card_client.fetch_month(agent_config(name), state["month"], state["resume"])
+        stream = deps.card_client.fetch_month(
+            agent_config(name), state["month"], state["resume"], current_user_token()
+        )
         async for event in stream:
             match event:
                 case StatusEvent():
@@ -232,14 +239,14 @@ def build_review_graph(
                 case TaskCompleted():
                     task = event.task
                 case TaskFailed():
-                    raise ReviewError(f"{name}: {event.message}")
+                    raise ReviewError(f"{name} {event.message}")
         if task is None:
             raise ReviewError(f"{name}: stream ended without completing or asking for input")
         return {"transactions": fetched, "tasks": {name: task}, "pending_remote": {name: pending}}
 
     async def reconcile(state: ReviewState) -> dict[str, Any]:
         merchants = {merchant_key(t.raw_merchant) for t in state["transactions"]}
-        known = await deps.memory.lookup(merchants)
+        known = await deps.memory.lookup(state["user_id"], merchants)
         transactions = apply_memory(state["transactions"], known)
         current = await publish_totals(transactions, list(state["skipped"]))
         return {"transactions": transactions, "totals": current}
@@ -270,7 +277,7 @@ def build_review_graph(
         raw = interrupt(interrupt_payload(questions))
         answers = validate_answers(questions, raw["answers"])
         for key, category in answers.categories.items():
-            await deps.memory.remember(key, category)
+            await deps.memory.remember(state["user_id"], key, category)
         newly_skipped = [a for a, action in answers.remote.items() if action == SKIP]
         update: dict[str, Any] = {
             "resume_agents": [a for a, action in answers.remote.items() if action == CONTINUE],
@@ -294,7 +301,7 @@ def build_review_graph(
     async def recategorize(state: ReviewState) -> dict[str, Any]:
         chosen = state["recategorize"]
         for key, category in chosen.items():
-            await deps.memory.remember(key, category)
+            await deps.memory.remember(state["user_id"], key, category)
         transactions = apply_memory(state["transactions"], chosen)
         current = await publish_totals(transactions, list(state["skipped"]))
         return {"transactions": transactions, "totals": current, "recategorize": {}}

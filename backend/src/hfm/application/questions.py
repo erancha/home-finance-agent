@@ -3,7 +3,9 @@
 Core building blocks:
 - build_questions: one categorize question per merchant a card agent was unsure of, one per agent
   awaiting input; an agent that names a page for the request gets a link to it and only
-  "continue", since the person resolves the request there
+  "continue", since the person resolves the request there, and an agent that could not verify the
+  person offers only "continue" too, since the person signs in again and the continue carries
+  the fresh token
 - interrupt_payload: the wire form of the questions handed to the caller
 - validate_answers: accepts answers to any subset of the categorize questions, since a person
   may not recall every merchant, and requires every remote question; each value must be a legal
@@ -29,7 +31,7 @@ from hfm.domain.questions import (
     question_to_dict,
 )
 from hfm.domain.taxonomy import TAXONOMY, UNCATEGORIZED
-from hfm.ports import InputRequired
+from hfm.ports import SIGN_IN_REQUIRED, InputRequired
 
 CATEGORY_OPTIONS = tuple(c for c in TAXONOMY if c != UNCATEGORIZED)
 
@@ -59,10 +61,16 @@ def build_questions(
 
 def _remote_question(event: InputRequired, agent: AgentConfig) -> RemoteInputQuestion:
     question_id = f"remote:{agent.name}"
+    if event.reason == SIGN_IN_REQUIRED:
+        return RemoteInputQuestion(
+            question_id, agent.name, event.text, event.reason, None, (CONTINUE,)
+        )
     if event.page is None:
-        return RemoteInputQuestion(question_id, agent.name, event.text, None, (CONTINUE, SKIP))
+        return RemoteInputQuestion(
+            question_id, agent.name, event.text, event.reason, None, (CONTINUE, SKIP)
+        )
     link = urljoin(agent.browser_url, event.page)
-    return RemoteInputQuestion(question_id, agent.name, event.text, link, (CONTINUE,))
+    return RemoteInputQuestion(question_id, agent.name, event.text, event.reason, link, (CONTINUE,))
 
 
 def interrupt_payload(questions: list[Question]) -> dict[str, Any]:

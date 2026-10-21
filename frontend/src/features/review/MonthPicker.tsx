@@ -24,13 +24,24 @@ interface Props {
   view: MonthView | null
   clearable: boolean
   busy: boolean
+  /** The connected card agents' names; null until the server answered, empty when none is. */
+  agents: string[] | null
   onMonth: (month: string) => void
   onStart: () => void
   onClear: () => void
 }
 
-/** A month holds one review: Start is offered while it has none, and Clear once it has. */
-export function MonthPicker({ month, view, clearable, busy, onMonth, onStart, onClear }: Props) {
+/**
+ * A month holds one review: Start is offered while it has none and a card agent is connected, and
+ * Clear once it has. Without a card agent there is nothing to pick, so only that fact is shown.
+ */
+export function MonthPicker({
+  month, view, clearable, busy, agents, onMonth, onStart, onClear,
+}: Props) {
+  if (agents !== null && agents.length === 0) {
+    return <p role="status" className="muted">No card agents are connected yet.</p>
+  }
+  const connected = agents !== null
   return (
     <form
       className="month-picker"
@@ -39,6 +50,7 @@ export function MonthPicker({ month, view, clearable, busy, onMonth, onStart, on
         onStart()
       }}
     >
+      {connected && <p className="muted">Card agents: {agents.join(', ')}</p>}
       <label>
         Billing month
         <input
@@ -54,7 +66,10 @@ export function MonthPicker({ month, view, clearable, busy, onMonth, onStart, on
           Clear review
         </button>
       ) : (
-        <button type="submit" disabled={busy || view === null || view.nextStart !== null}>
+        <button
+          type="submit"
+          disabled={busy || view === null || view.nextStart !== null || !connected}
+        >
           Start review
         </button>
       )}

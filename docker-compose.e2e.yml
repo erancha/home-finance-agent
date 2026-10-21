@@ -1,14 +1,49 @@
-# Layered over docker-compose.yml by ./scripts/test.sh e2e: the home finance agent writes a canned
-# report (HFM_E2E) and amex-agent classifies merchants by its keyword table (its e2e profile), so
-# the review's categories and report are deterministic and need no API key, and the agent starts
-# on the empty, writable folder test.sh creates rather than the actual statements in
-# AMEX_STATEMENTS_DIR; scripts/e2e/run_review.py loads amex-agent's test statement into it.
+# Layered over docker-compose.yml by ./scripts/test.sh e2e, the one place both repos meet: it adds
+# amex-agent, built from the checkout test.sh names (AMEX_AGENT_DIR), on its e2e profile (keyword
+# categorizer), and runs the manager on its canned report (HFM_E2E), so the review is deterministic
+# and needs no API key. The agent starts on the empty, writable folder test.sh creates;
+# scripts/tests/e2e/run_review.py loads amex-agent's test statement into it.
+#
+# Nobody signs in with Google: test.sh generates a key pair into E2E_AUTH_DIR, both agents verify
+# tokens with its public key under the issuer hfm-e2e, and run_review.py signs its own tokens for
+# the two client ids below. make_auth.py also writes, into that folder, the callers file that
+# registers the manager with a throwaway secret and the registry that connects the manager to
+# amex-agent at its service address; test.sh mounts the registry through CARD_AGENTS_FILE.
 services:
   manager:
     environment:
       HFM_E2E: "true"
+      GOOGLE_CLIENT_ID: hfm-e2e-client
+      AUTH_ISSUER: hfm-e2e
+      AUTH_PUBLIC_KEY_FILE: /e2e/auth-public.pem
+    volumes:
+      - ${E2E_AUTH_DIR:?run through ./scripts/test.sh e2e}:/e2e:ro
+    depends_on:
+      amex-agent:
+        condition: service_healthy
   amex-agent:
+    build:
+      context: ${AMEX_AGENT_DIR:?run through ./scripts/test.sh e2e}
+    image: amex-agent:e2e
+    # Writes uploads into the test's statements folder, so it runs as the host user who owns it.
+    user: "${HOST_UID:?run through ./scripts/test.sh e2e}:${HOST_GID:?same}"
+    deploy: { resources: { limits: { memory: 768M } } }
     environment:
+      SERVER_PORT: 8020
+      APP_AGENT_URL: http://amex-agent:8020
+      APP_STATEMENTS_DIR: /statements
+      APP_A2A_CALLERS_FILE: /e2e/allowed-callers.yaml
+      APP_AUTH_CLIENT_ID: amex-e2e-client
+      APP_AUTH_ISSUER: hfm-e2e
+      APP_AUTH_PUBLIC_KEY_FILE: /e2e/auth-public.pem
       SPRING_PROFILES_ACTIVE: e2e
     volumes:
       - ${E2E_STATEMENTS_DIR:?run through ./scripts/test.sh e2e}:/statements
+      - ${E2E_AUTH_DIR:?run through ./scripts/test.sh e2e}:/e2e:ro
+    ports:
+      - "8020:8020"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8020/actuator/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20

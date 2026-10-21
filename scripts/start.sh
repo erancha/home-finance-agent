@@ -1,25 +1,24 @@
 #!/usr/bin/env bash
 #
-# Run the home finance agent together with amex-agent. Docker is the default; --host runs both as
-# local processes for fast restarts and debugger attach. Either way the home finance agent answers
-# on http://localhost:8010 (the React app at /) and amex-agent on http://localhost:8020; the home
-# finance agent listens on every interface, so other devices on the network use this machine's
-# address.
+# Run the home finance agent: database, migrations and manager. Docker is the default; --host runs
+# the manager as a local process for fast restarts and debugger attach. Either way the page is
+# http://localhost:8010 (the React app at /); the manager listens on every interface, so other
+# devices on the network use this machine's address.
 #
-#   ./scripts/start.sh            # db, migrations, amex-agent and manager via docker compose
-#   ./scripts/start.sh --host     # db in Docker; agent (mvn) and manager (uvicorn) on the host
+#   ./scripts/start.sh            # db, migrations and manager via docker compose
+#   ./scripts/start.sh --host     # db in Docker; manager (uvicorn) on the host
 #
-# Docker mode builds both images, applies migrations in a one-shot service and returns once both
-# agents are healthy. Host mode provisions backend/.venv, starts PostgreSQL via compose, applies
-# migrations, launches the agent through its own scripts/start.sh --host (its .env governs it,
-# except the statements folder, which is AMEX_STATEMENTS_DIR in both modes), rebuilds the frontend
-# when its sources changed, and runs uvicorn; Ctrl-C stops both.
+# Docker mode builds the image, applies migrations in a one-shot service and returns once the
+# manager is healthy. Host mode provisions backend/.venv, starts PostgreSQL via compose, applies
+# migrations, rebuilds the frontend when its sources changed, and runs uvicorn; Ctrl-C stops it.
 #
-# Refuses to start when AMEX_AGENT_TOKEN in backend/.env differs from the agent's APP_A2A_TOKEN
-# (./scripts/init-env.sh --sync-token realigns it).
+# Card agents come from backend/card-agents.yaml (./scripts/add-card-agent.sh), read at startup, so
+# rerun this script after connecting one. The manager calls the URL an agent's card advertises,
+# which must be reachable from where the manager runs: in Docker an agent on this machine is
+# http://host.docker.internal:<port>, in --host mode http://localhost:<port>.
 #
-# Requires backend/.env (./scripts/init-env.sh). Stop or inspect the Docker stack with
-# ./scripts/docker-helper.sh (--stop / --logs / --ps).
+# Requires backend/.env and the registry (./scripts/init-env.sh). Stop or inspect the Docker
+# stack with ./scripts/docker-helper.sh (--stop / --logs / --ps).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
@@ -36,20 +35,18 @@ done
 
 require_env
 load_env
-require_matching_token
+require_registry
 require_docker
 MANAGER=http://localhost:8010
-AGENT_HEALTH="$AGENT_BASE/actuator/health"
 
 if [ "$HOST" -eq 0 ]; then
-  echo "Deploying db + migrations + amex-agent + manager to Docker..."
+  echo "Deploying db + migrations + manager to Docker..."
   compose up -d --build
-  wait_for_url "$AGENT_HEALTH" \
-    || { echo "amex-agent did not become healthy; see ./scripts/docker-helper.sh --logs" >&2; exit 1; }
   wait_for_url "$MANAGER/health" \
-    || { echo "manager did not become healthy; see ./scripts/docker-helper.sh --logs" >&2; exit 1; }
-  echo "  manager    -> $MANAGER   (React app at /, ready: /ready)"
-  echo "  amex-agent -> $AGENT_BASE/.well-known/agent-card.json"
+    || { echo "manager did not become healthy; see ./scripts/docker-helper.sh --logs" >&2
+         exit 1; }
+  echo "Open $MANAGER in your browser and sign in with Google."
+  echo "  health: $MANAGER/health   ready: $MANAGER/ready"
   echo "  stop the stack or tail logs:  ./scripts/docker-helper.sh --stop | --logs"
   exit 0
 fi
@@ -85,9 +82,8 @@ else
 fi
 export HFM_FRONTEND_DIST="$FRONTEND/dist" LANGGRAPH_STRICT_MSGPACK=true
 
-# Both run as background children waited on together, so one Ctrl-C (delivered to the whole
-# process group) stops the launch, and either one exiting tears down the other. Waiting after the
-# kill lets uvicorn's graceful shutdown and the agent's stop finish before the prompt returns.
+# uvicorn runs as a background child so one Ctrl-C (delivered to the whole process group) stops
+# the launch; waiting after the kill lets its graceful shutdown finish before the prompt returns.
 pids=()
 cleanup() {
   [ ${#pids[@]} -gt 0 ] || return 0
@@ -96,24 +92,11 @@ cleanup() {
 }
 trap cleanup INT TERM EXIT
 
-# The agent's load_env keeps an exported value over its own .env, so this folder wins there.
-APP_STATEMENTS_DIR="$(abs_from_root "$AMEX_STATEMENTS_DIR")"
-export APP_STATEMENTS_DIR
-
-"$(abs_from_root "$AMEX_AGENT_DIR")/scripts/start.sh" --host &
-pids+=($!)
-for _ in $(seq 120); do
-  curl -fs --max-time 2 -o /dev/null "$AGENT_HEALTH" && break
-  kill -0 "${pids[0]}" 2>/dev/null || { echo "amex-agent exited during startup." >&2; exit 1; }
-  sleep 1
-done
-curl -fs --max-time 2 -o /dev/null "$AGENT_HEALTH" \
-  || { echo "amex-agent did not become healthy within 120 s." >&2; exit 1; }
-
-echo "Starting manager -> $MANAGER   (React app at /, health: /health, ready: /ready)"
-# Run from the repo root: config/agents.yaml and config/budget.yaml resolve against it.
-( cd "$ROOT" && exec "$VENV/bin/uvicorn" hfm.platform.app:create_app --factory --host 0.0.0.0 --port 8010 \
-    --timeout-graceful-shutdown 5 ) &
+echo "Starting the manager; open $MANAGER in your browser and sign in with Google." \
+     "Ctrl-C stops it."
+# Run from the repo root: backend/card-agents.yaml and config/budget.yaml resolve against it.
+( cd "$ROOT" && exec "$VENV/bin/uvicorn" hfm.platform.app:create_app --factory \
+    --host 0.0.0.0 --port 8010 --timeout-graceful-shutdown 5 ) &
 pids+=($!)
 
-wait -n "${pids[@]}"
+wait "${pids[@]}"

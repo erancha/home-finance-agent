@@ -22,6 +22,7 @@ dependencies = [
     "a2a-sdk>=1.2.2,<2",
     "httpx>=0.28",
     "pyyaml>=6.0",
+    "PyJWT[crypto]>=2.10",
 ]
 
 [project.optional-dependencies]

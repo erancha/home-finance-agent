@@ -1,10 +1,12 @@
 """Persistence ports for reviews, their event logs and the merchant-category memory.
 
 Core building blocks:
-- ReviewRepository: stores reviews, their status and when they were cleared; a month has at most
-  one review that is not cleared
+- ReviewRepository: stores reviews, their status and when they were cleared; a person's month has
+  at most one review that is not cleared
 - ReviewEventStore: append-only per-review event log with sequence numbers
-- MerchantMemory: merchant key to category lookups learned from the person's choices
+- MerchantMemory: merchant key to category lookups learned from each person's own choices
+
+Every row belongs to one user, named by their Google account id.
 """
 
 from __future__ import annotations
@@ -20,8 +22,8 @@ from hfm.domain.models import Review, ReviewStatus
 @runtime_checkable
 class ReviewRepository(Protocol):
     async def add(self, review: Review) -> None:
-        """Store a new review; raises ValueError when its id exists or its month already has a
-        review that is not cleared."""
+        """Store a new review; raises ValueError when its id exists or the user's month already
+        has a review that is not cleared."""
         ...
 
     async def get(self, review_id: str) -> Review:
@@ -36,12 +38,12 @@ class ReviewRepository(Protocol):
         """Return every review with the status, oldest first."""
         ...
 
-    async def standing_for_month(self, month: str) -> Review | None:
-        """Return the month's review that is not cleared; None when it has none."""
+    async def standing_for_month(self, user_id: str, month: str) -> Review | None:
+        """Return the user's review of the month that is not cleared; None when there is none."""
         ...
 
-    async def list_created_since(self, since: datetime) -> list[Review]:
-        """Return every review created at or after since, cleared or not, oldest first."""
+    async def list_created_since(self, user_id: str, since: datetime) -> list[Review]:
+        """Return the user's reviews created at or after since, cleared or not, oldest first."""
         ...
 
     async def clear(self, review_id: str, at: datetime) -> None:
@@ -62,10 +64,10 @@ class ReviewEventStore(Protocol):
 
 @runtime_checkable
 class MerchantMemory(Protocol):
-    async def lookup(self, keys: Iterable[str]) -> dict[str, str]:
-        """Return key to category for the known keys only; unknown keys are omitted."""
+    async def lookup(self, user_id: str, keys: Iterable[str]) -> dict[str, str]:
+        """Return key to category for the keys the user has chosen before; others are omitted."""
         ...
 
-    async def remember(self, key: str, category: str) -> None:
-        """Store the category for the key, replacing any earlier one."""
+    async def remember(self, user_id: str, key: str, category: str) -> None:
+        """Store the user's category for the key, replacing any earlier one."""
         ...

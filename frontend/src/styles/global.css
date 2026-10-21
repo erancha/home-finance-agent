@@ -21,6 +21,12 @@
 
 body { margin: 0; background: var(--bg); color: var(--fg); }
 main { max-width: 56rem; margin: 0 auto; padding: 1rem; }
+.session-bar {
+  max-width: 56rem; margin: 0 auto; padding: 0.5rem 1rem; display: flex; gap: 1rem;
+  justify-content: flex-end; align-items: center; color: var(--muted); font-size: 0.9em;
+}
+.session-bar button { margin: 0; }
+.sign-in { margin: 1rem 0; }
 section { margin-top: 1.5rem; }
 button { padding: 0.4rem 0.9rem; margin-right: 0.4rem; cursor: pointer; }
 button:disabled { cursor: not-allowed; }

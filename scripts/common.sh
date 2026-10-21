@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Shared helpers for the home-finance-agent scripts: repo paths, help text, backend/.env loading
-# and the card-agent path check, the compose wrapper, and backend venv provisioning.
+# Shared helpers for the home-finance-agent scripts: repo paths, help text, backend/.env loading,
+# the card-agent registry path, the compose wrapper, and backend venv provisioning.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,10 +10,10 @@ VENV="$BACKEND/.venv"
 ENV_FILE="$BACKEND/.env"
 COMPOSE_FILE="$ROOT/docker-compose.yml"
 E2E_COMPOSE_FILE="$ROOT/docker-compose.e2e.yml"
-# The agent container runs as the host user so uploads into the statements folder belong to it.
-export HOST_UID HOST_GID
-HOST_UID="$(id -u)" HOST_GID="$(id -g)"
-
+# The card-agent registry scripts/add-card-agent.sh writes and the manager loads (its
+# CARD_AGENTS_FILE setting defaults to this path, relative to the repo root).
+REGISTRY_FILE_NAME=card-agents.yaml
+REGISTRY_FILE="$BACKEND/$REGISTRY_FILE_NAME"
 # Print the calling script's header comment block as --help text (single source of usage docs).
 print_help() { awk 'NR==1 {next} /^#/ {sub(/^# ?/, ""); print; next} {exit}' "$0"; }
 
@@ -22,21 +22,10 @@ require_env() {
     || { echo "backend/.env not found; create it first:  ./scripts/init-env.sh" >&2; exit 1; }
 }
 
-# Both paths come from backend/.env or the caller's environment and are relative to the repo root
-# unless absolute; compose resolves them from there too, since it runs with the repo root as its
-# project directory. Neither has a default: a blank one stops the script by name.
-require_agent_paths() {
-  local name
-  for name in AMEX_AGENT_DIR AMEX_STATEMENTS_DIR; do
-    [ -n "${!name:-}" ] || { echo "$name is blank; set it in backend/.env." >&2; exit 1; }
-  done
-}
-
 # Export the keys of backend/.env as defaults, so compose interpolation and host processes see the
 # same values: a variable the caller already exported keeps its value, even when the .env line is
 # blank. Accepts blank lines, # comments and KEY=value (one matching pair of quotes is stripped);
-# any other line is rejected rather than executed. The card-agent repo's load_env follows the
-# same rule.
+# any other line is rejected rather than executed.
 load_env() {
   local line key value lineno=0
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -55,34 +44,20 @@ load_env() {
       export "$key=$value"
     fi
   done < "$ENV_FILE"
-  require_agent_paths
+  # Compose bind-mounts the registry by this path on every call, stop and logs included; a mount
+  # of a missing path would create a directory there, so a launch checks the file exists first.
+  : "${CARD_AGENTS_FILE:=$REGISTRY_FILE}"
+  export CARD_AGENTS_FILE
+  # The registry is readable by its owner alone, so compose runs the manager as that user: the ids
+  # are exported for every compose call, since the file is mounted on each.
+  : "${HOST_UID:=$(id -u)}" "${HOST_GID:=$(id -g)}"
+  export HOST_UID HOST_GID
 }
 
-abs_from_root() { (cd "$ROOT" && cd "$1" && pwd); }  # path
-
-# The home finance agent reaches amex-agent here, outside Docker; the container listens on the
-# same port.
-AGENT_PORT=8020
-AGENT_BASE="http://localhost:$AGENT_PORT"
-
-amex_env_file() { echo "$(abs_from_root "$AMEX_AGENT_DIR")/.env"; }
-
-# The bearer token the agent expects, from its own .env; empty when the key has no value.
-amex_token() { sed -n 's/^APP_A2A_TOKEN=//p' "$(amex_env_file)"; }
-
-# Requires load_env. A token that drifted makes every review fail at the agent's auth check, far
-# from the cause, so the launch refuses instead.
-require_matching_token() {
-  local agent_env
-  agent_env="$(amex_env_file)"
-  [ -f "$agent_env" ] \
-    || { echo "$agent_env not found; run ./scripts/init-env.sh --force" >&2; exit 1; }
-  [ -n "$(amex_token)" ] || { echo "$agent_env has no APP_A2A_TOKEN value." >&2; exit 1; }
-  if [ "$(amex_token)" != "${AMEX_AGENT_TOKEN:-}" ]; then
-    echo "AMEX_AGENT_TOKEN in $ENV_FILE differs from APP_A2A_TOKEN in $agent_env;" \
-      "run ./scripts/init-env.sh --sync-token (or --force to recreate backend/.env)." >&2
-    exit 1
-  fi
+# Requires load_env. init-env.sh writes an empty registry so the mount has a file to bind.
+require_registry() {
+  [ -f "$CARD_AGENTS_FILE" ] \
+    || { echo "$CARD_AGENTS_FILE not found; create it:  ./scripts/init-env.sh" >&2; exit 1; }
 }
 
 require_docker() {

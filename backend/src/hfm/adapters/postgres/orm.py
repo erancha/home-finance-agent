@@ -1,4 +1,6 @@
-"""Tables of the review store: reviews, their per-review event log and the merchant memory."""
+"""Tables of the review store: reviews, their per-review event log and the merchant memory.
+
+Reviews and remembered merchants carry the Google account id of the person they belong to."""
 
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ class ReviewRow(Base):
     __table_args__ = (
         Index(
             "reviews_one_standing_per_month",
+            "user_id",
             "month",
             unique=True,
             postgresql_where="cleared_at IS NULL",
@@ -26,6 +29,7 @@ class ReviewRow(Base):
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text)
     month: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -47,6 +51,7 @@ class ReviewEventRow(Base):
 class MerchantMemoryRow(Base):
     __tablename__ = "merchant_memory"
 
+    user_id: Mapped[str] = mapped_column(Text, primary_key=True)
     merchant_key: Mapped[str] = mapped_column(Text, primary_key=True)
     category: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(

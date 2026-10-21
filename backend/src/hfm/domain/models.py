@@ -97,6 +97,23 @@ class CategoryTotal:
         return self.limit is not None and self.spent > self.limit
 
 
+@dataclass(frozen=True)
+class User:
+    """A signed-in person, as the verified Google ID token describes them."""
+
+    id: str
+    """Google's stable account id, the token's sub; the user id in every table."""
+    email: str | None
+    name: str | None
+
+
+@dataclass(frozen=True)
+class VerifiedToken:
+    user: User
+    expires_at: datetime
+    """When the token stops being valid; a session built on it ends then."""
+
+
 class ReviewStatus(StrEnum):
     RUNNING = "running"
     WAITING = "waiting"
@@ -107,6 +124,7 @@ class ReviewStatus(StrEnum):
 @dataclass(frozen=True)
 class Review:
     id: str
+    user_id: str
     month: str
     status: ReviewStatus
     created_at: datetime

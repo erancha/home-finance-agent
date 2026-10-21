@@ -1,21 +1,22 @@
 """The FastAPI application and the composition of its production dependencies.
 
 Core building blocks:
-- create_app: routes, error mapping, probes and the optional static frontend; its lifespan builds
-  the production wiring unless AppDeps are injected, then the ReviewRunner, which fails the
-  reviews a stopped server left running before the app serves
-- production_deps: database engine, repositories, Postgres checkpointer, card-agent client, config
-  files, report writer, event bus and the review graph, all closed in reverse order on shutdown
+- create_app: routes (sign-in, reviews, events, card agents), error mapping, probes and the
+  optional static frontend; its lifespan builds the production wiring unless AppDeps are
+  injected, then the ReviewRunner, which fails the reviews a stopped server left running before
+  the app serves
+- production_deps: database engine, repositories, Postgres checkpointer, card-agent client, the
+  card-agent registry and the budget file, report writer, token verifier, event bus and the review
+  graph, all closed in reverse order on shutdown
 - /health answers while the process runs; /ready also needs the database to answer SELECT 1
 - signal_shutdown: tells open event streams to end when the server is asked to stop
 """
 from __future__ import annotations
 
 import asyncio
-import os
 import signal
 import threading
-from collections.abc import AsyncIterator, Callable, Iterator, Mapping
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import (
     AbstractAsyncContextManager,
     AsyncExitStack,
@@ -34,7 +35,8 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from hfm.adapters.a2a_client import A2ACardAgentClient
-from hfm.adapters.config_files import load_agents, load_budget
+from hfm.adapters.config_files import load_budget, load_card_agents
+from hfm.adapters.google_tokens import GoogleTokenVerifier, JwksKeys, StaticKey
 from hfm.adapters.memory_bus import InMemoryEventBus
 from hfm.adapters.postgres.repositories import (
     PostgresMerchantMemory,
@@ -44,7 +46,7 @@ from hfm.adapters.postgres.repositories import (
 from hfm.adapters.report_writer import CannedReportWriter, build_report_writer
 from hfm.application.event_sink import ReviewEventSink
 from hfm.application.review_graph import GraphDeps, build_review_graph
-from hfm.platform.api import events, reviews
+from hfm.platform.api import agents, auth, events, reviews
 from hfm.platform.checkpointer import libpq_dsn, open_checkpointer
 from hfm.platform.config import Settings, get_settings
 from hfm.platform.db import build_engine, session_factory
@@ -57,22 +59,22 @@ __all__ = ["AppDeps", "create_app", "production_deps"]
 log = structlog.get_logger(__name__)
 
 
-def agent_env(settings: Settings) -> Mapping[str, str]:
-    """The process environment with the card-agent variables as settings resolved them, so a
-    value from .env or a settings default reaches config/agents.yaml."""
-    return {
-        **os.environ,
-        "AMEX_AGENT_URL": settings.amex_agent_url,
-        "AMEX_AGENT_TOKEN": settings.amex_agent_token.get_secret_value(),
-        "AMEX_AGENT_BROWSER_URL": settings.amex_browser_url(),
-    }
+def token_verifier(settings: Settings) -> GoogleTokenVerifier:
+    """Google's published keys, unless a public key file stands in for them (tests only)."""
+    keys = (
+        JwksKeys(settings.auth_jwks_url)
+        if settings.auth_public_key_file is None
+        else StaticKey.from_file(settings.auth_public_key_file)
+    )
+    return GoogleTokenVerifier(settings.google_client_id, settings.auth_issuer, keys)
 
 
 @asynccontextmanager
 async def production_deps(settings: Settings) -> AsyncIterator[AppDeps]:
     """Config files load first, so a bad file fails startup before any connection opens."""
-    agents = load_agents(settings.agents_config, agent_env(settings))
+    card_agents = load_card_agents(settings.card_agents_file)
     budget = load_budget(settings.budget_config)
+    verifier = token_verifier(settings)
     writer = (
         CannedReportWriter() if settings.hfm_e2e else build_report_writer(*settings.report_model())
     )
@@ -90,7 +92,7 @@ async def production_deps(settings: Settings) -> AsyncIterator[AppDeps]:
         bus = InMemoryEventBus()
         sink = ReviewEventSink(store, bus)
         graph_deps = GraphDeps(
-            card_client, PostgresMerchantMemory(sessions), budget, writer, sink, agents
+            card_client, PostgresMerchantMemory(sessions), budget, writer, sink, card_agents
         )
         yield AppDeps(
             reviews=PostgresReviewRepository(sessions),
@@ -99,6 +101,9 @@ async def production_deps(settings: Settings) -> AsyncIterator[AppDeps]:
             sink=sink,
             graph=build_review_graph(graph_deps, checkpointer),
             sessions=sessions,
+            verifier=verifier,
+            google_client_id=settings.google_client_id,
+            card_agents=tuple(card_agents),
         )
 
 
@@ -176,9 +181,12 @@ def create_app(settings: Settings | None = None, deps: AppDeps | None = None) ->
 
     app = FastAPI(title="Home finance agent", lifespan=lifespan)
     reviews.register_error_handlers(app)
+    auth.register_error_handlers(app)
+    app.include_router(auth.router)
     app.include_router(reviews.router)
     app.include_router(reviews.months_router)
     app.include_router(events.router)
+    app.include_router(agents.router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

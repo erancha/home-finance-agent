@@ -16,7 +16,7 @@ from hfm.domain.merchants import merchant_key
 from hfm.domain.models import AgentConfig, TaskRef
 from hfm.domain.questions import CategorizeQuestion, RemoteInputQuestion, question_to_dict
 from hfm.domain.taxonomy import TAXONOMY
-from hfm.ports import InputRequired
+from hfm.ports import SIGN_IN_REQUIRED, InputRequired
 from tests.builders import make_tx
 
 ROWS = (make_tx(id="1"), make_tx(id="2"))
@@ -49,7 +49,7 @@ def test_build_questions_ids_and_options() -> None:
     )
     assert cat.options == tuple(c for c in TAXONOMY if c != "uncategorized")
     assert remote == RemoteInputQuestion(
-        "remote:amex", "amex", "Enter the SMS code", None, ("continue", "skip")
+        "remote:amex", "amex", "Enter the SMS code", "auth", None, ("continue", "skip")
     )
 
 
@@ -60,9 +60,21 @@ def test_build_questions_links_the_agent_page_on_its_browser_address_and_offers_
         "remote:amex",
         "amex",
         "No statement covers 2026-09",
+        "statement-missing",
         "http://localhost:8020/statements.html",
         ("continue",),
     )
+
+
+def test_build_questions_offers_only_continue_when_the_agent_asks_to_sign_in_again() -> None:
+    sign_in = replace(INPUT, text="Sign in again and continue.", reason=SIGN_IN_REQUIRED)
+    _, remote = questions(sign_in)
+    assert remote == RemoteInputQuestion(
+        "remote:amex", "amex", "Sign in again and continue.", SIGN_IN_REQUIRED, None, ("continue",)
+    )
+    with pytest.raises(InvalidAnswersError) as rejected:
+        validate_answers([remote], {"remote:amex": "skip"})
+    assert "remote:amex" in rejected.value.invalid
 
 
 def test_validate_answers_rejects_skip_for_a_linked_question() -> None:

@@ -1,8 +1,17 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import * as auth from '../../api/auth.ts'
 import type { Question, Transaction } from '../../api/types.ts'
+import { FakeGoogleIdentity } from '../../test/fakeGoogle.ts'
 import { QuestionCard } from './QuestionCard.tsx'
+
+vi.mock('../../api/auth.ts')
+
+beforeEach(() => {
+  vi.mocked(auth.getAuthConfig).mockResolvedValue({ clientId: 'hfm-test-client' })
+  vi.mocked(auth.signIn).mockResolvedValue({ id: '1001', email: 'dana@example.com', name: 'Dana' })
+})
 
 const row: Transaction = {
   id: 't1', agent: 'amex', transactionDate: '2026-09-02', chargeDate: '2026-10-02',
@@ -24,8 +33,8 @@ const otherMerchant: Question = {
   ...categorize, id: 'cat:gett', merchant: 'Gett', transactions: [{ ...row, id: 't3' }],
 }
 const remote: Question = {
-  id: 'remote:amex', kind: 'remote-input', agent: 'amex', text: 'Enter the SMS code', link: null,
-  actions: ['continue', 'skip'],
+  id: 'remote:amex', kind: 'remote-input', agent: 'amex', text: 'Enter the SMS code',
+  reason: 'auth', link: null, actions: ['continue', 'skip'],
 }
 
 describe('QuestionCard', () => {
@@ -88,7 +97,7 @@ describe('QuestionCard', () => {
     const user = userEvent.setup()
     const onSubmit = vi.fn()
     const linked: Question = {
-      ...remote, text: 'No statement covers 2026-10.',
+      ...remote, text: 'No statement covers 2026-10.', reason: 'statement-missing',
       link: 'http://localhost:8020/statements.html', actions: ['continue'],
     }
     render(<QuestionCard questions={[linked]} submitting={false} onSubmit={onSubmit} />)
@@ -98,6 +107,26 @@ describe('QuestionCard', () => {
     expect(link).toHaveAttribute('target', '_blank')
     expect(link).toHaveAttribute('rel', 'noopener noreferrer')
     expect(screen.queryByRole('button', { name: 'skip' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'continue' }))
+    await user.click(screen.getByRole('button', { name: 'Send answers' }))
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith({ 'remote:amex': 'continue' })
+  })
+
+  it('offers to sign in again, then only continue, when the agent could not verify the person', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn()
+    const signIn: Question = {
+      ...remote, reason: 'sign-in-required', actions: ['continue'],
+      text: 'amex-agent could not verify who you are (expired). Sign in again and continue.',
+    }
+    render(<QuestionCard questions={[signIn]} submitting={false} onSubmit={onSubmit} />)
+
+    expect(screen.getByText(signIn.text)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'skip' })).not.toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Continue with Google' }))
+    expect(auth.signIn).toHaveBeenCalledExactlyOnceWith(FakeGoogleIdentity.credential)
+    expect(await screen.findByText(/Signed in again as dana@example.com/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'continue' }))
     await user.click(screen.getByRole('button', { name: 'Send answers' }))
