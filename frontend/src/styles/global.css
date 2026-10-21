@@ -28,9 +28,14 @@ main { max-width: 56rem; margin: 0 auto; padding: 1rem; }
 .session-bar button { margin: 0; }
 .sign-in { margin: 1rem 0; }
 section { margin-top: 1.5rem; }
-button { padding: 0.4rem 0.9rem; margin-right: 0.4rem; cursor: pointer; }
-button:disabled { cursor: not-allowed; }
-button.chosen { background: var(--accent); color: white; }
+/* A primary button is filled with this agent's accent; a secondary one is outlined in it.
+   Card agents style their pages the same way in their own accent. */
+button {
+  font: inherit; padding: 0.4rem 0.9rem; margin-right: 0.4rem; border-radius: 6px;
+  border: 1px solid var(--accent); background: var(--accent); color: white; cursor: pointer;
+}
+button.secondary { background: transparent; color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
 .month-picker { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end; }
 .month-picker p { flex-basis: 100%; margin: 0; }
 .month-picker label { display: grid; gap: 0.2rem; }
@@ -40,15 +45,24 @@ th, td { text-align: start; padding: 0.35rem 0.5rem; border-bottom: 1px solid va
 td[dir="auto"] { text-align: left; }
 .feed { padding-inline-start: 1.2rem; max-height: 12rem; overflow-y: auto; }
 .feed-time { color: var(--muted); font-size: 0.8em; }
+.feed-bare { list-style: none; }
+.spinner {
+  display: inline-block; width: 0.8em; height: 0.8em; vertical-align: -0.1em;
+  border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
 .question { margin: 0.75rem 0 2rem; }
 .question-name { margin-bottom: 0.5em; }
 .question-rows { margin-bottom: 0.5rem; font-size: 0.9em; overflow-x: auto; }
 .totals { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; }
 .totals-pie { flex: 1 1 16rem; min-width: 0; }
-.totals-legend { flex: 1 1 16rem; list-style: none; margin: 0; padding: 0; }
-.totals-legend li { display: flex; gap: 0.5rem; align-items: center; padding: 0.2rem 0; }
-.totals-legend li.over { color: var(--bad); font-weight: 600; }
-.chip { width: 0.75rem; height: 0.75rem; border-radius: 0.2rem; flex: none; }
+.totals-legend { flex: 1 1 16rem; width: auto; }
+.totals-legend td, .totals-legend th { white-space: nowrap; }
+.totals-legend .num { text-align: right; font-variant-numeric: tabular-nums; }
+.totals-legend tr.over { color: var(--bad); font-weight: 600; }
+.chip { display: inline-block; width: 0.75rem; height: 0.75rem; border-radius: 0.2rem; }
 .chart-tooltip { background: var(--bg); border: 1px solid var(--line); padding: 0.3rem 0.5rem; }
 .muted { color: var(--muted); }
 .notice { background: #fff6dd; border: 1px solid #e6cf85; padding: 0.5rem 0.75rem; }

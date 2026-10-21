@@ -13,6 +13,7 @@ AGENT_STATUS = "agent.status"
 TRANSACTIONS_BATCH = "transactions.batch"
 REVIEW_QUESTION = "review.question"
 REVIEW_TOTALS = "review.totals"
+REVIEW_WRITING = "review.writing"
 REVIEW_REPORT = "review.report"
 REVIEW_FAILED = "review.failed"
 

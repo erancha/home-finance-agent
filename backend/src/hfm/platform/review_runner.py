@@ -52,7 +52,7 @@ log = structlog.get_logger(__name__)
 SETTLE_SECONDS = 30.0
 """How long an answer waits for the review's in-flight run to reach its pause."""
 
-DAILY_REVIEW_LIMIT = 3
+DAILY_REVIEW_LIMIT = 5
 REVIEW_LIMIT_WINDOW = timedelta(hours=24)
 
 INTERRUPTED_MESSAGE = "interrupted by a server restart; clear the review and start it again"

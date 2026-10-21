@@ -8,6 +8,7 @@ from typing import Self
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from hfm.adapters.config_files import REGISTRY_FILE_NAME
 from hfm.adapters.google_tokens import GOOGLE_ISSUER, GOOGLE_JWKS_URL
 from hfm.adapters.report_writer import SUPPORTED_PROVIDERS
 
@@ -25,8 +26,8 @@ class Settings(BaseSettings):
     hfm_e2e: bool = False
     """Set by docker-compose.e2e.yml alone: the report is a canned text, and no model or API key is
     read, so the end-to-end test is deterministic and free."""
-    anthropic_api_key: SecretStr | None = None
-    openai_api_key: SecretStr | None = None
+    llm_api_key: SecretStr | None = None
+    """The key of the provider llm_model names; required with it."""
     google_client_id: str
     """The OAuth client of this agent's Sign in with Google button; the audience every token
     must name."""
@@ -35,10 +36,10 @@ class Settings(BaseSettings):
     auth_public_key_file: Path | None = None
     """Test only: a PEM public key that verifies tokens instead of the issuer's published keys,
     so the end-to-end test signs its own tokens and never reaches Google."""
-    card_agents_file: Path = Path("backend/card-agents.yaml")
+    card_agents_file: Path = Path("backend") / REGISTRY_FILE_NAME
     """The card-agent registry scripts/add-card-agent.sh writes; absent means no card agents.
-    Relative to the working directory: the repo root on the host, where compose mounts it in
-    Docker (it sets this key)."""
+    Relative to the working directory, the repo root on the host; compose sets this key to the
+    path it mounts the file at."""
     budget_config: Path = Path("config/budget.yaml")
     hfm_frontend_dist: Path | None = None
 
@@ -55,26 +56,15 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"LLM_MODEL provider {provider!r} is not one of {', '.join(SUPPORTED_PROVIDERS)}"
             )
-        if self._provider_key(provider) is None:
-            raise ValueError(
-                f"LLM_MODEL={self.llm_model} needs {_key_field(provider).upper()} to be set"
-            )
+        if self.llm_api_key is None:
+            raise ValueError(f"LLM_MODEL={self.llm_model} needs LLM_API_KEY to be set")
         return self
 
     def report_model(self) -> tuple[str, str]:
         """The validated provider:model and its API key; only outside the end-to-end test."""
         assert not self.hfm_e2e and self.llm_model is not None, "validated at construction"
-        key = self._provider_key(self.llm_model.partition(":")[0])
-        assert key is not None, "validated at construction"
-        return self.llm_model, key.get_secret_value()
-
-    def _provider_key(self, provider: str) -> SecretStr | None:
-        key: SecretStr | None = getattr(self, _key_field(provider))
-        return key
-
-
-def _key_field(provider: str) -> str:
-    return f"{provider}_api_key"
+        assert self.llm_api_key is not None, "validated at construction"
+        return self.llm_model, self.llm_api_key.get_secret_value()
 
 
 @lru_cache

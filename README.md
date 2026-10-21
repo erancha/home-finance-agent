@@ -21,9 +21,9 @@ for what it cannot decide; a language model writes only the summary.
 
 - **The contract is shared, not per agent.** Every card agent offers the same A2A skill,
   `monthly-transactions`: a billing month in, rows out in one format (ISO dates, amounts in
-  shekels, one category from a closed list), or a request for the missing statement. amex-agent's
-  [contract](https://github.com/erancha/amex-agent/blob/main/docs/a2a-contract.md) specifies it;
-  [docs/a2a-contract.md](docs/a2a-contract.md) lists what this agent relies on.
+  shekels, one category from a closed list), or a request for the missing statement.
+  [docs/a2a-contract.md](docs/a2a-contract.md) is that contract; a card agent documents how it
+  implements it in its own repo.
 - **Each card agent normalizes and categorizes its own card.** Statement formats, card-specific
   labels, installments and foreign purchases never reach the home finance agent. Rows arrive in
   the shared format, each placed in a category by the card agent with its confidence, `high`,
@@ -46,7 +46,7 @@ for what it cannot decide; a language model writes only the summary.
 4. Your answers resume the review. A merchant question lists its charges, and you answer only the
    ones you recognize. A category you choose is remembered for that merchant, so next month asks
    less. A missing statement links to the card agent's statements page: sign in there with the
-   same Google account, load the file and choose "continue", and the card agent's paused task
+   same Google account, load the file and press "continue", and the card agent's paused task
    resumes.
 5. Totals per category are compared to the budget. A language model turns the numbers into a few
    sentences; the numbers themselves never come from it.
@@ -58,31 +58,46 @@ for what it cannot decide; a language model writes only the summary.
 Requires **Docker**, **Python 3.12+** and **Node.js 22+**. Everything here is this repo's own; a
 card agent is deployed from its own repo and connected at the end.
 
-1. **A Google OAuth client** in a Google Cloud project of its own, with `http://localhost:8010` as
+1. **The env file.** `./scripts/init-env.sh` writes `backend/.env`; every key in it is explained
+   in [backend/.env.example](backend/.env.example). The next two steps fill in the two it needs.
+2. **A Google OAuth client** in a Google Cloud project of its own, with `http://localhost:8010` as
    the authorized JavaScript origin. [docs/sign-in.md](docs/sign-in.md#setting-up-google) walks
    through the console. Add every household member's Google account as a test user: Google signs
-   in nobody else while an app is in testing.
-2. **A language model key**, Anthropic or OpenAI. `backend/.env` names the model as
-   `LLM_MODEL=provider:model`, OpenAI's `gpt-5-nano` unless changed; set that provider's
-   key.
-3. **The env file, then start:**
+   in nobody else while an app is in testing. The client id goes into `backend/.env` as
+   `GOOGLE_CLIENT_ID`.
+3. **A language model key**, Anthropic or OpenAI, as `LLM_API_KEY`. `LLM_MODEL=provider:model`
+   names the model, OpenAI's `gpt-5-nano` unless changed.
+4. **Start:**
 
    ```bash
-   ./scripts/init-env.sh   # writes backend/.env: set GOOGLE_CLIENT_ID and ANTHROPIC_API_KEY in it
    ./scripts/start.sh      # database, migrations and the agent, in Docker
    ```
 
-   Every key is explained in [backend/.env.example](backend/.env.example).
-4. Open **http://localhost:8010** and sign in with Google. The page says no card agent is connected
+   Once the agent is up, the script ends by printing this agent's Google client id:
+
+   ```text
+   Hand this to each card agent's operator, who registers this agent as a caller with it:
+     Google client id: <the GOOGLE_CLIENT_ID from backend/.env>
+   ```
+
+   That id is public. Send it to the card agent's operator; step 6 records what they send back.
+5. Open **http://localhost:8010** and sign in with Google. The page says no card agent is connected
    yet, which is right: this agent runs on its own.
-5. **Connect a card agent.** Its operator deploys it from its own repo and registers this agent
-   as a caller by name and Google client id, which issues a secret. A card agent's start script
-   ends by printing the rest: the name to register it under, the URL this agent calls it at and the
-   URL your browser opens its pages at. Pass the four values on:
+6. **Connect a card agent.** Its operator deploys it from its own repo and registers this agent
+   as a caller with the client id from step 4. The registration prints four values, which they
+   send you by whatever channel you two share, a message or a password manager; nothing in either
+   agent transmits them. Each goes into one flag of the command below:
+
+   | Value | Flag |
+   |---|---|
+   | the card agent's name | `--name` |
+   | the URL this agent calls it at | `--url` |
+   | the URL your browser opens its pages at | `--browser-url` |
+   | the secret, shown once and confidential | `--secret` |
 
    ```bash
    ./scripts/add-card-agent.sh --name <name> --url <url> --browser-url <browser url> \
-     --secret <the issued secret>
+     --secret <secret>
    ./scripts/start.sh      # the agent reads the registry at startup
    ```
 
@@ -109,7 +124,7 @@ All live in `scripts/`; run with `--help` for full usage.
 |---|---|
 | `init-env.sh` | Create `backend/.env` and an empty card-agent registry; `--force` overwrites the env file. |
 | `add-card-agent.sh` | Connect a card agent, or replace its entry, in `backend/card-agents.yaml`. |
-| `start.sh` | Run database, migrations and the agent in Docker, or `--host` with the agent as a local process (the page is rebuilt when its sources changed). |
+| `start.sh` | Run database, migrations and the agent in Docker, or `--host` with the agent as a local process (the page is rebuilt when its sources changed); prints the Google client id a card agent registers this agent with. |
 | `docker-helper.sh` | Stop, follow logs, or show status of the Docker stack. |
 | `sql-helper.sh` | Row counts of every database table (`--counts`), or their contents (`--rows`). |
 | `test.sh` | Backend and frontend checks; `e2e` runs whole reviews through both agents. |
@@ -130,6 +145,7 @@ flowchart LR
   P -->|REST + live events| M[Home finance agent: FastAPI]
   M --> G[Review graph]
   G -->|A2A: your token + caller secret| A[amex-agent]
+  G -.->|same contract| B[any other card agent]
   G --> DB[(Postgres: checkpoints, events, memory, per person)]
   G -->|numbers in, prose out| L[Language model]
 ```
@@ -137,7 +153,7 @@ flowchart LR
 The review is a small state machine that can pause and resume; its state lives in Postgres, so a
 question can wait for hours. The home finance agent is the A2A client; each card agent is opaque to
 it beyond the protocol. Details and the reasoning behind them:
-[docs/architecture.md](docs/architecture.md); what it relies on from card agents:
+[docs/architecture.md](docs/architecture.md); the contract every card agent offers:
 [docs/a2a-contract.md](docs/a2a-contract.md); how sign-in spans the agents:
 [docs/sign-in.md](docs/sign-in.md).
 

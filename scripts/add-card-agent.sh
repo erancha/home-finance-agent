@@ -16,8 +16,8 @@
 # An agent with that name is replaced; other agents are kept. Removing an entry disconnects the
 # agent; the manager reads the file at startup, so run ./scripts/start.sh after a change.
 #
-# A card agent's start script prints the name, url and browser url once it is healthy; its
-# registration script issued the secret. --url is where the manager fetches the agent's card; the
+# A card agent's registration script prints the name, url, browser url and secret; its start
+# script repeats the first three. --url is where the manager fetches the agent's card; the
 # calls then go to the URL the card advertises, so the two must agree and both must be reachable
 # from where the manager runs: http://host.docker.internal:<port> for an agent on this machine when
 # the manager runs in Docker, http://localhost:<port> when it runs with start.sh --host.

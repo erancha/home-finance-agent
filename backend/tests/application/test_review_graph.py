@@ -21,6 +21,7 @@ from hfm.domain.events import (
     REVIEW_QUESTION,
     REVIEW_REPORT,
     REVIEW_TOTALS,
+    REVIEW_WRITING,
     TRANSACTIONS_BATCH,
 )
 from hfm.domain.merchants import merchant_key
@@ -150,7 +151,8 @@ async def test_happy_path_streams_totals_and_report() -> None:
     assert spent(result) == {"groceries": GROCERIES.amount, "dining": DINING.amount}
     assert result["report"] == "canned report"
     assert await h.event_types() == [
-        AGENT_DISCOVERED, AGENT_STATUS, TRANSACTIONS_BATCH, REVIEW_TOTALS, REVIEW_REPORT,
+        AGENT_DISCOVERED, AGENT_STATUS, TRANSACTIONS_BATCH, REVIEW_TOTALS, REVIEW_WRITING,
+        REVIEW_REPORT,
     ]
 
 
@@ -476,4 +478,4 @@ async def test_a_completed_review_recategorizes_a_merchant_and_rewrites_the_repo
     assert result["recategorize"] == {}
     assert await h.memory.lookup(USER, [dining_key]) == {dining_key: "groceries"}
     assert len(h.client.calls) == 1
-    assert (await h.event_types())[-2:] == [REVIEW_TOTALS, REVIEW_REPORT]
+    assert (await h.event_types())[-3:] == [REVIEW_TOTALS, REVIEW_WRITING, REVIEW_REPORT]

@@ -7,24 +7,26 @@ order. Each repo's README covers its own session; the Google side of this agent 
 
 ## Session A: the home finance agent, nothing else deployed
 
-1. Create its Google Cloud project and OAuth client, with `http://localhost:8010` as the authorized
-   JavaScript origin ([sign-in.md](sign-in.md#setting-up-google)).
-2. `./scripts/init-env.sh`, then fill `GOOGLE_CLIENT_ID` and the model key in `backend/.env`.
+1. `./scripts/init-env.sh` writes `backend/.env` and an empty card-agent registry.
+2. Create its Google Cloud project and OAuth client, with `http://localhost:8010` as the authorized
+   JavaScript origin ([sign-in.md](sign-in.md#setting-up-google)), and put the client id in
+   `backend/.env` as `GOOGLE_CLIENT_ID`, with the model key as `LLM_API_KEY`.
 3. `./scripts/start.sh`. Open http://localhost:8010 and sign in. The page says "No card agents are
    connected yet." and offers no review. Nothing in this session has named a card agent.
-4. Keep the Google client id at hand: it is public, and a card agent's operator needs it to
-   register this agent as a caller.
+4. `start.sh` ends by printing the Google client id. It is public; hand it to the card agent's
+   operator, who registers this agent as a caller with it.
 
 ## Session B: the card agent, from its own repo
 
 Its README's Getting started covers its Google client, its env file and its start. This guide
 relies on two things every card agent does:
 
-1. Its registration script takes this agent's name and Google client id (A4) and issues the
-   secret, shown once.
-2. Its start script, once the agent is healthy, prints the other three values in the form
-   `add-card-agent.sh` takes: the name to register it under, the URL this agent calls it at, and
-   the URL a person's browser opens its pages at.
+1. Its registration script takes this agent's name and Google client id (A4), issues the
+   secret, and prints the four values: the name to register it under, the URL this agent calls
+   it at, the URL a person's browser opens its pages at, and the secret, shown once. They become
+   `--name`, `--url`, `--browser-url` and `--secret` in step 5.
+2. Its start script repeats the three public values once the agent is healthy. A card agent may
+   be recorded here before or after its first start; it has to be running when a review begins.
 
 The URL it prints is the one its card advertises, and this agent calls that URL rather than the
 one it fetched the card from, so the card agent's operator sets it to an address reachable from
@@ -38,8 +40,10 @@ card agent's hostname when it runs elsewhere.
    <secret>`, with the values from B. This writes `backend/card-agents.yaml`; `backend/.env` is
    untouched.
 6. `./scripts/start.sh` again. Compose recreates the manager with the registry; the database and
-   its reviews stay. The page now reads "Card agents: <name>" and offers a review.
-7. Start a review. What the page says when something is off:
+   its reviews stay. The page reads "Registered card agents: <name>" and offers a review.
+7. Start a review. Before any statement is loaded it pauses with a link to the card agent's
+   statements page: sign in there with the same Google account, load the month's statement, come
+   back and press "continue". What the page says when something is off:
 
    | Condition | Review failed: ... |
    |---|---|
@@ -64,4 +68,4 @@ where a person's browser goes. This agent fetches the card at the registered URL
 the card advertises, so the advertised one must be the one callers can reach.
 
 [amex-agent](https://github.com/erancha/amex-agent), the card agent of this demo, follows this:
-its README's Getting started ends with the registration and the hand-over.
+its README's Getting started covers the registration and the hand-over.

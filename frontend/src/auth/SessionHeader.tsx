@@ -14,7 +14,7 @@ export function SessionHeader({ user, onSignOut }: Props) {
   return (
     <header className="session-bar">
       <span>Signed in as {displayName(user)}</span>
-      <button type="button" onClick={onSignOut}>
+      <button type="button" className="secondary" onClick={onSignOut}>
         Sign out
       </button>
     </header>

@@ -12,6 +12,17 @@ interface Props {
   onSubmit: (answers: Answers) => void
 }
 
+const CONTINUE = 'continue'
+
+/** Every card agent question offers "continue"; the card's one button answers them all with it. */
+function continueAll(questions: Question[]): Answers {
+  const remote = questions.filter((q) => q.kind === 'remote-input')
+  for (const q of remote) {
+    if (!q.actions.includes(CONTINUE)) throw new Error(`question ${q.id} offers no continue`)
+  }
+  return Object.fromEntries(remote.map((q) => [q.id, CONTINUE]))
+}
+
 /** Rows left unanswered keep the category their card agent guessed. */
 function notSureLabel(transactions: Transaction[]): string {
   const guesses = new Set(transactions.map((t) => t.category))
@@ -55,37 +66,50 @@ function MerchantRows({
   )
 }
 
-function QuestionInput({
+function MerchantQuestion({
   question,
   value,
   onChange,
 }: {
-  question: Question
+  question: Question & { kind: 'categorize' }
   value: string | undefined
   onChange: (value: string | undefined) => void
 }) {
-  if (question.kind === 'categorize') {
-    return (
-      <div className="question">
-        <p className="question-name">
-          <strong dir="auto">{question.merchant}</strong>
-        </p>
-        <MerchantRows merchant={question.merchant} transactions={question.transactions} />
-        <select
-          aria-label={`Category for ${question.merchant}`}
-          value={value ?? ''}
-          onChange={(e) => onChange(e.target.value === '' ? undefined : e.target.value)}
-        >
-          <option value="">{notSureLabel(question.transactions)}</option>
-          {question.options.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      </div>
-    )
-  }
+  return (
+    <div className="question">
+      <p className="question-name">
+        <strong dir="auto">{question.merchant}</strong>
+      </p>
+      <MerchantRows merchant={question.merchant} transactions={question.transactions} />
+      <select
+        aria-label={`Category for ${question.merchant}`}
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value === '' ? undefined : e.target.value)}
+      >
+        <option value="">{notSureLabel(question.transactions)}</option>
+        {question.options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+/**
+ * A card agent's question is answered by the card's one "continue" button. Any other action it
+ * offers (a "skip") is its own button, which submits the card at once with that answer.
+ */
+function AgentQuestion({
+  question,
+  submitting,
+  onAction,
+}: {
+  question: Question & { kind: 'remote-input' }
+  submitting: boolean
+  onAction: (action: string) => void
+}) {
   return (
     <div className="question">
       <p className="question-name">
@@ -100,17 +124,19 @@ function QuestionInput({
           </a>
         </p>
       )}
-      {question.actions.map((action) => (
-        <button
-          key={action}
-          type="button"
-          aria-pressed={value === action}
-          className={value === action ? 'chosen' : undefined}
-          onClick={() => onChange(action)}
-        >
-          {action}
-        </button>
-      ))}
+      {question.actions
+        .filter((action) => action !== CONTINUE)
+        .map((action) => (
+          <button
+            key={action}
+            type="button"
+            className="secondary"
+            disabled={submitting}
+            onClick={() => onAction(action)}
+          >
+            {action} {question.agent}
+          </button>
+        ))}
     </div>
   )
 }
@@ -127,16 +153,20 @@ function SignInAgain() {
   return <GoogleSignIn onSignedIn={setRefreshed} text="continue_with" />
 }
 
-/** Categorize questions are optional: a merchant left unanswered keeps its card agent's guess. */
+/**
+ * One "continue" button answers the whole card: the categories chosen, and "continue" to every
+ * card agent asking. Merchants left unanswered keep their guess, so the button is always live.
+ */
 export function QuestionCard({ questions, submitting, onSubmit }: Props) {
-  const [answers, setAnswers] = useState<Answers>({})
-  const ready = questions.every((q) => q.kind === 'categorize' || answers[q.id] !== undefined)
-  const answer = (id: string, value: string | undefined) =>
-    setAnswers((current) =>
+  const [categories, setCategories] = useState<Answers>({})
+  const choose = (id: string, value: string | undefined) =>
+    setCategories((current) =>
       value === undefined
         ? Object.fromEntries(Object.entries(current).filter(([key]) => key !== id))
         : { ...current, [id]: value },
     )
+  const submit = (overrides: Answers = {}) =>
+    onSubmit({ ...categories, ...continueAll(questions), ...overrides })
   return (
     <section className="question-card">
       <h2>Questions</h2>
@@ -146,16 +176,25 @@ export function QuestionCard({ questions, submitting, onSubmit }: Props) {
           keep the card agent&apos;s guess.
         </p>
       )}
-      {questions.map((q) => (
-        <QuestionInput
-          key={q.id}
-          question={q}
-          value={answers[q.id]}
-          onChange={(value) => answer(q.id, value)}
-        />
-      ))}
-      <button type="button" disabled={!ready || submitting} onClick={() => onSubmit(answers)}>
-        Send answers
+      {questions.map((q) =>
+        q.kind === 'categorize' ? (
+          <MerchantQuestion
+            key={q.id}
+            question={q}
+            value={categories[q.id]}
+            onChange={(value) => choose(q.id, value)}
+          />
+        ) : (
+          <AgentQuestion
+            key={q.id}
+            question={q}
+            submitting={submitting}
+            onAction={(action) => submit({ [q.id]: action })}
+          />
+        ),
+      )}
+      <button type="button" disabled={submitting} onClick={() => submit()}>
+        {CONTINUE}
       </button>
     </section>
   )
