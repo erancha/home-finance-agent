@@ -11,7 +11,9 @@ own reviews and statements.
 
 A2A calls every party in the conversation an agent, and these docs follow its naming (card agent,
 home finance agent). The review itself follows a fixed plan written in code, with you in the loop
-for what it cannot decide; a language model writes only the summary.
+for what it cannot decide; a language model writes only the summary. In fairness, a card agent is
+closer to a service than to an agent, and much of the exchange would fit plain HTTP streaming;
+[docs/why-a2a.md](docs/why-a2a.md) says what the protocol does and does not add here.
 
 **Contents:** [Boundaries](#boundaries) · [How a review runs](#how-a-review-runs) ·
 [Getting started](#getting-started) · [Sign-in](#sign-in) · [Scripts](#scripts) ·
