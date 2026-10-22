@@ -54,16 +54,17 @@ unless the environment already sets it, before anything imports LangGraph.
 | `adapters/test_a2a_client.py` | The A2A stream becomes port events: status, batches, input required with its task and optional page, auth required as a `sign-in-required` pause (any other reason in that state is refused), completed snapshots, resume ids, failed states, SDK errors, a stream that ends early; a malformed input request (a `page` that is not a path on the agent's origin included) or an empty stream response fails naming the agent and the fault. Each call carries the person's token as the bearer and the secret under the header the card names, and nothing on the HTTP client, which allows 300 s between stream events. A changed card on rediscovery gets a new SDK client. Cards without the skill (`test_discover_rejects_card_without_skill`), without a JSON-RPC interface, without the OpenID Connect or header API key scheme or a requirement joining them, or with no secret configured are refused. A refused connection at the card reads `<agent> could not be reached at <url>; it may not be running`, any other card fetch failure names the URL and the cause, HTTP 401 on the call reads `<agent> refused this agent's secret; check its registration`, and a dropped connection or timeout during the call reads as unreachable. Wire rows map field by field, and a numeric confidence is refused. |
 | `adapters/test_google_tokens.py` | A valid token names the person and its expiry; email and name are optional; Google's bare issuer form is accepted for Google only; expired, wrong-audience, wrong-issuer, foreign-key, unsigned, symmetric and claim-less tokens are refused with a reason; a PEM file loads and a non-RSA key is refused; JWKS keys are picked by key id and fetched once. |
 | `adapters/test_memory_bus.py` | A published event reaches only its channel's subscribers; a subscription ends with its context. |
+| `adapters/test_redis_bus.py` | On a Testcontainers Redis, an event published by one bus reaches only its channel's subscribers on another, as across replicas; a subscription is live before its context body runs, which the event route counts on when it subscribes before replaying; a subscription ends with its context; the bus satisfies the port. |
 | `adapters/test_report_writer.py` | The canned writer returns its text; the LangChain writer returns the model's reply; providers are built through LangChain with the key passed on; a GPT-5 model is asked for minimal reasoning and other OpenAI models for none; an unknown provider is named. |
 | `adapters/test_a2a_client_live.py` | Skipped unless `LIVE_AGENT_URL`, `LIVE_AGENT_TOKEN` and `LIVE_AGENT_USER_TOKEN` point at a running agent and a person it accepts; then fetches 2026-10 from its test statement (24 rows). |
-| `platform/test_config.py`, `test_logging.py`, `test_app.py` | Settings refuse a missing model, `LLM_MODEL=fake`, a model without `LLM_API_KEY` or a provider, and a missing `GOOGLE_CLIENT_ID`, while `HFM_E2E` needs no model, token verification defaults to Google, and the registry path has its default unless `CARD_AGENTS_FILE` is set; logging levels, and successful `/health` and `/ready` access lines dropped to DEBUG; `/health`, `/ready`, the served page, the production wiring signing a person in with a token the configured public key verifies and recording a failed review in Postgres, and startup failing a review a stopped server left running. |
+| `platform/test_config.py`, `test_logging.py`, `test_app.py` | Settings refuse a missing model, `LLM_MODEL=fake`, a model without `LLM_API_KEY` or a provider, and a missing `GOOGLE_CLIENT_ID`, while `HFM_E2E` needs no model, token verification defaults to Google, and the registry path has its default unless `CARD_AGENTS_FILE` is set, and `REDIS_URL` is optional and kept secret; logging levels, and successful `/health` and `/ready` access lines dropped to DEBUG; `/health`, `/ready`, the served page, live events staying in process unless `REDIS_URL` is set, the production wiring signing a person in with a token the configured public key verifies and recording a failed review in Postgres, and startup failing a review a stopped server left running. |
 
-**Postgres.** `tests/conftest.py` starts `postgres:16` with Testcontainers once per test module and
-applies the Alembic migrations. `adapters/postgres/test_repositories.py` covers review rows,
-event sequences that never collide under concurrent appends, reviews listed by status, a person's
-month holding one standing review until it is cleared while another person reviews the same month
-independently, a person's reviews created since a time listed cleared ones included, and merchant
-memory upserts per person.
+**Postgres and Redis.** `tests/conftest.py` starts `postgres:16` (and, for the Redis bus tests,
+`redis:7-alpine`) with Testcontainers once per test module and applies the Alembic migrations.
+`adapters/postgres/test_repositories.py` covers review rows, event sequences that never collide
+under concurrent appends, reviews listed by status, a person's month holding one standing review
+until it is cleared while another person reviews the same month independently, a person's reviews
+created since a time listed cleared ones included, and merchant memory upserts per person.
 `platform/test_checkpointer.py` round-trips a checkpoint through Postgres with `Decimal` and domain
 values intact, shows the default serializer losing a domain value that the allow-list keeps, and
 reads a checkpoint back after every server connection was terminated, as a database restart does;
@@ -127,6 +128,7 @@ checks the shutdown handler restores the default action in its place.
 | `test_readme_toc.py` | Every README contents link reaches a heading. |
 | `test_docker_compose_ports.py` | Postgres is published on `127.0.0.1` only; only the nginx edge (8010) and, in the end-to-end file, amex-agent (8020) listen on every interface, and the home finance agent itself publishes no port. |
 | `test_env_example.py` | `backend/.env.example` documents every settings key and nothing else beyond the named operational keys. |
+| `test_docker_compose_replicas.py` | The development stack runs more than one replica of the agent sharing the `redis` service; the end-to-end file runs one. |
 
 ## Frontend
 

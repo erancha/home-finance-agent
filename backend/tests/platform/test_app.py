@@ -8,11 +8,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from hfm.adapters.memory_bus import InMemoryEventBus
 from hfm.adapters.postgres.repositories import PostgresReviewRepository
+from hfm.adapters.redis_bus import RedisEventBus
 from hfm.domain.events import REVIEW_FAILED
 from hfm.domain.models import Review, ReviewStatus
 from hfm.platform.api.auth import COOKIE
-from hfm.platform.app import create_app
+from hfm.platform.app import create_app, open_event_bus
 from hfm.platform.config import Settings
 from hfm.platform.db import build_engine, session_factory
 from hfm.platform.review_runner import INTERRUPTED_MESSAGE, ReviewRunner
@@ -152,3 +154,10 @@ async def test_startup_fails_a_review_a_stopped_server_left_running(
     [(seq, event)] = events
     assert (seq, event.type, event.data["message"]) == (1, REVIEW_FAILED, INTERRUPTED_MESSAGE)
     datetime.fromisoformat(event.data["at"])
+
+
+async def test_live_events_stay_in_process_unless_redis_url_is_set() -> None:
+    async with open_event_bus(None) as bus:
+        assert isinstance(bus, InMemoryEventBus)
+    async with open_event_bus(SecretStr("redis://redis:6379/0")) as bus:
+        assert isinstance(bus, RedisEventBus)

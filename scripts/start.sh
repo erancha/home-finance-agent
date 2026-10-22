@@ -43,7 +43,7 @@ require_docker
 MANAGER=http://localhost:8010
 
 if [ "$HOST" -eq 0 ]; then
-  echo "Deploying db + migrations + manager + edge to Docker..."
+  echo "Deploying db + redis + migrations + the manager replicas + edge to Docker..."
   compose up -d --build
   wait_for_url "$MANAGER/health" \
     || { echo "the stack did not answer on $MANAGER; see ./scripts/docker-helper.sh --logs" >&2
