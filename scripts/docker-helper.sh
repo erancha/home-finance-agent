@@ -8,7 +8,7 @@
 #       removes them for a clean database.
 #   ./scripts/docker-helper.sh --logs [-e|--errors] [service...]
 #       Follow logs live (last 200 lines). -e filters to ERROR/EXCEPTION/FATAL lines. A trailing
-#       service list (db migrate manager) narrows to those services.
+#       service list (db migrate manager edge) narrows to those services.
 #   ./scripts/docker-helper.sh --ps
 #       Show the stack's container status.
 #   -h, --help

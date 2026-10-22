@@ -332,6 +332,13 @@ it readable by its owner alone, and compose runs the manager container as that u
 `HOST_UID`/`HOST_GID`, which `load_env` exports) so the read-only mount is readable inside it; the
 image's own user `hfm` serves the migration run.
 
+**The edge.** In Docker the browser never reaches the manager directly: an nginx service, `edge`,
+is the only one that publishes port 8010, and `nginx/default.conf` proxies every request to the
+manager service by name, which resolves to each of its replicas. The event stream passes through
+it unbuffered because the response carries `X-Accel-Buffering: no`, and its keep-alive comment
+every 15 seconds stays inside nginx's default 60-second read timeout. `start.sh --host` has no
+edge: uvicorn serves the port itself.
+
 In Docker the manager reaches an agent on the same machine as `http://host.docker.internal:<port>`;
 compose gives the container that name (`extra_hosts: host-gateway`), which Docker Desktop provides
 on its own. In `--host` mode the manager is a host process, so the agent is registered, and
@@ -343,12 +350,13 @@ unknown one stops startup rather than totalling to zero.
 
 ### Other devices on your network
 
-The home finance agent listens on every interface in both modes (compose publishes `8010:8010`;
-`start.sh --host` runs uvicorn with `--host 0.0.0.0`), and the page calls its API by relative paths,
-so any browser on the network can reach `http://<this machine's address>:8010`. Reaching it is not
-using it: every review route needs the sign-in cookie, and Google issues a token only to a page
-served from an authorized origin, which must be `localhost` or a public hostname, never a private
-address. So another device on the network sees the sign-in button and cannot get past it until the
+The home finance agent listens on every interface in both modes (compose publishes `8010:8010` on
+the edge; `start.sh --host` runs uvicorn with `--host 0.0.0.0`), and the page calls its API by
+relative paths, so any browser on the network can reach `http://<this machine's address>:8010`.
+Reaching it is not using it: every review route needs the sign-in cookie, and Google issues a token
+only to a page served from an authorized origin, which must be `localhost` or a public hostname,
+never a private address. So another device on the network sees the sign-in button and cannot get
+past it until the
 stack is reached through a hostname registered with both Google clients. The browser opens only
 a card agent's page, from a missing-statement question's link; everything else on a card agent is
 called by the home finance agent, and a card agent publishes and guards its own port from its own

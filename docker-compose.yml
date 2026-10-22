@@ -1,6 +1,6 @@
-# The home finance agent and its database. The scripts export backend/.env, CARD_AGENTS_FILE, the
-# card-agent registry, and HOST_UID/HOST_GID, the user who owns it, before calling compose; relative
-# paths resolve from this repo's root.
+# The home finance agent, its database and the nginx edge the browser reaches it through. The
+# scripts export backend/.env, CARD_AGENTS_FILE, the card-agent registry, and HOST_UID/HOST_GID,
+# the user who owns it, before calling compose; relative paths resolve from this repo's root.
 x-manager-build: &manager-build
   context: .
   dockerfile: backend/Dockerfile
@@ -63,8 +63,6 @@ services:
     volumes:
       - ${CARD_AGENTS_FILE:?run through ./scripts/start.sh}:/card-agents.yaml:ro
     deploy: { resources: { limits: { memory: 512M } } }
-    ports:
-      - "8010:8010"
     healthcheck:
       test: ["CMD", "python", "-c",
              "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
@@ -76,6 +74,23 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+
+  # The only service that publishes the agent's port; nginx/default.conf proxies to the manager.
+  edge:
+    image: nginx:1.28-alpine
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    deploy: { resources: { limits: { memory: 64M } } }
+    ports:
+      - "8010:8010"
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:8010/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      manager:
+        condition: service_healthy
 
 volumes:
   hfm_pgdata:
