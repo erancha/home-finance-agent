@@ -11,6 +11,9 @@
 # amex-agent at its service address; test.sh mounts the registry through CARD_AGENTS_FILE.
 services:
   manager:
+    # run_review.py answers a question the instant it arrives, which can reach the replica that
+    # does not own the run before its status settles; one replica keeps the run deterministic.
+    deploy: { replicas: 1 }
     environment:
       HFM_E2E: "true"
       GOOGLE_CLIENT_ID: hfm-e2e-client

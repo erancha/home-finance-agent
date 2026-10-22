@@ -17,7 +17,7 @@ One package, `hfm`, under `backend/src`, in five layers:
 | `domain` | Plain immutable values and the rules on them: transactions, budget, totals, questions, events, the category list, merchant keys, the signed-in person, errors. | `models`, `taxonomy`, `merchants`, `questions`, `events`, `errors` |
 | `ports` | The interfaces the review needs from the outside world, as Python protocols. | `card_agent`, `repositories`, `events`, `report`, `auth` |
 | `application` | The review itself: the graph, totals arithmetic, questions and answer checks, the report prompt, the event sink, the run-scoped user token. | `review_graph`, `reconcile`, `questions`, `report`, `event_sink`, `user_token` |
-| `adapters` | Port implementations: the A2A client, Postgres repositories, the report writers, the Google token verifier, YAML config loading, the in-process event bus. | `a2a_client`, `postgres/`, `report_writer`, `google_tokens`, `config_files`, `memory_bus` |
+| `adapters` | Port implementations: the A2A client, Postgres repositories, the report writers, the Google token verifier, YAML config loading, the in-process and the Redis event bus. | `a2a_client`, `postgres/`, `report_writer`, `google_tokens`, `config_files`, `memory_bus`, `redis_bus` |
 | `platform` | The running process: settings, logging, database engine, checkpointer, the review runner and the HTTP API. | `config`, `logging`, `db`, `checkpointer`, `review_runner`, `app`, `dependencies`, `api/` |
 
 Imports point inwards only. `platform` may use everything; `application` uses `ports` and
@@ -136,9 +136,34 @@ starts a day.
 **A restart keeps waiting reviews and fails running ones.** A `waiting` review is only a saved
 state, so it can be answered after any restart; a review still `running` when the server starts lost
 its invocation with the old process, so startup marks it `failed` with the `review.failed` message
-"interrupted by a server restart; clear the review and start it again". The sweep assumes one home
-finance agent per database: a second one started against the same database, such as
-`start.sh --host` beside the Docker stack, fails the first one's in-flight reviews.
+"interrupted by a server restart; clear the review and start it again". The sweep runs in every
+process that starts against the database, whoever runs the review.
+
+**The replicas share one database.** The Docker stack runs more than one replica of the home finance
+agent behind the edge (`deploy: replicas` in compose), and everything a review needs already crosses
+processes: every event is appended to Postgres before it is published and a stream replays the log
+by sequence number, sign-in is a cookie verified on every request, live events travel through Redis,
+and a paused review belongs to no process, so whichever replica receives the answer resumes it from
+the checkpoint. Three single-process assumptions remain in `platform/review_runner.py`, so the
+replicas serve people correctly under these operating conditions:
+
+1. **No replica boots while a review is `running`.** The startup sweep fails every `running`
+   review, whoever runs it. Start every replica before the first review, and redeploy only when
+   every review is `waiting` or `completed`; those survive a redeploy. The same holds for a
+   `start.sh --host` process started beside the Docker stack.
+2. **No two requests for the same review at the same instant.** Status changes are guarded by a
+   per-process lock, so two answers for one review landing on two replicas at once would both
+   resume its graph, and the daily start limit can be exceeded by one. A person clicking once
+   cannot cause this.
+3. **First boot on an empty database starts one replica before the others.** Every replica runs
+   the checkpointer's table setup, and Postgres can fail one of two concurrent creates.
+
+A fourth gap is out of a person's reach: between the question event and the `waiting` status (two
+checkpoints and one status write, tens of milliseconds), an answer reaching the non-owning replica
+gets 409 instead of being held until the run settles. Only a client that answers the instant the
+question arrives can hit it, which is why the end-to-end test runs one replica. Lifting the
+conditions means an owner lease per running review, or runs moved to a worker tier, and the
+checkpointer's table setup moved into the migration run.
 
 **Starts are rationed.** Every start fetches the month from the card agents, which classify its
 merchants with a model, and has a model write the report, so repeating a start costs model calls on
@@ -251,8 +276,13 @@ ends and closes when the browser leaves or the server shuts down: `signal_shutdo
 `platform/app.py` catches SIGINT and SIGTERM and ends open streams, since uvicorn waits for open
 responses before it runs the shutdown code.
 
-Live delivery is an in-process bus (`adapters/memory_bus.py`), so one home finance agent process
-serves all streams.
+Live delivery is an event bus behind the `EventBus` port. With `REDIS_URL` set, the bus is Redis
+publish/subscribe (`adapters/redis_bus.py`): a replica publishes each event on the review's channel
+after appending it to the log, and a stream served by any replica subscribes to that channel, so the
+progress list is complete whichever replica runs the review and whichever serves the browser. The
+subscription is confirmed by Redis before the route replays the log, so no event falls between the
+two. Unset, the bus is in-process (`adapters/memory_bus.py`), and the one process serves every
+stream of the reviews it runs.
 
 **The page renders from the stream.** Questions, the spending pie and the report come from the
 latest `review.question`, `review.totals` and `review.report` events, each sequence number kept
@@ -314,6 +344,7 @@ refuses to start when a required key is missing.
 | `CARD_AGENTS_FILE` | no | The card-agent registry; default `backend/card-agents.yaml`, which compose mounts at `/card-agents.yaml`. Absent or empty: no card agents. |
 | `BUDGET_CONFIG` | no | Default `config/budget.yaml`. |
 | `HFM_FRONTEND_DIST` | no | Built page folder served at `/`; unset serves the API only. |
+| `REDIS_URL` | no | A Redis that carries live events between replicas; compose sets it to its `redis` service. Unset, live events stay in the one process. |
 
 Keys read outside the settings class: `LANGGRAPH_STRICT_MSGPACK` (LangGraph itself),
 `HFM_LOG_LEVEL` and `HFM_LOG_LEVELS` (`platform/logging.py`). `backend/.env.example` explains
@@ -335,12 +366,17 @@ it readable by its owner alone, and compose runs the manager container as that u
 `HOST_UID`/`HOST_GID`, which `load_env` exports) so the read-only mount is readable inside it; the
 image's own user `hfm` serves the migration run.
 
-**The edge.** In Docker the browser never reaches the manager directly: an nginx service, `edge`,
-is the only one that publishes port 8010, and `nginx/default.conf` proxies every request to the
-manager service by name, which resolves to each of its replicas. The event stream passes through
-it unbuffered because the response carries `X-Accel-Buffering: no`, and its keep-alive comment
-every 15 seconds stays inside nginx's default 60-second read timeout. `start.sh --host` has no
-edge: uvicorn serves the port itself.
+**The edge and the replicas.** In Docker the browser never reaches the manager directly: an nginx
+service, `edge`, is the only one that publishes port 8010, and `nginx/default.conf` proxies every
+request to the manager service by name, which resolves to each of its replicas (`deploy: replicas`
+in compose), so requests of one review spread over all of them. nginx resolves that name once, when
+it starts, so a stack scaled while running (`compose up -d --scale manager=N`, from a shell that
+sourced `scripts/common.sh` and ran `load_env`) needs `compose restart edge` to put the new replicas
+in rotation; the next `start.sh` returns to the count in the file. The `redis` service joins their
+live events (`REDIS_URL` in compose) and publishes no port; the operating conditions above apply.
+The event stream passes through it unbuffered because the response carries `X-Accel-Buffering: no`,
+and its keep-alive comment every 15 seconds stays inside nginx's default 60-second read timeout.
+`start.sh --host` has no edge: uvicorn serves the port itself.
 
 In Docker the manager reaches an agent on the same machine as `http://host.docker.internal:<port>`;
 compose gives the container that name (`extra_hosts: host-gateway`), which Docker Desktop provides

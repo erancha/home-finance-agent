@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     path it mounts the file at."""
     budget_config: Path = Path("config/budget.yaml")
     hfm_frontend_dist: Path | None = None
+    redis_url: SecretStr | None = None
+    """A Redis that carries live review events between replicas of this agent; unset, events
+    stay inside the one process, which then serves every request."""
 
     @model_validator(mode="after")
     def _require_provider_key(self) -> Self:

@@ -8,6 +8,7 @@ Core building blocks:
 - production_deps: database engine, repositories, Postgres checkpointer, card-agent client, the
   card-agent registry and the budget file, report writer, token verifier, event bus and the review
   graph, all closed in reverse order on shutdown
+- open_event_bus: the in-process bus, or the Redis bus when REDIS_URL is set
 - /health answers while the process runs; /ready also needs the database to answer SELECT 1
 - signal_shutdown: tells open event streams to end when the server is asked to stop
 """
@@ -32,6 +33,7 @@ import structlog
 from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import SecretStr
 from sqlalchemy import text
 
 from hfm.adapters.a2a_client import A2ACardAgentClient
@@ -43,6 +45,7 @@ from hfm.adapters.postgres.repositories import (
     PostgresReviewEventStore,
     PostgresReviewRepository,
 )
+from hfm.adapters.redis_bus import RedisEventBus
 from hfm.adapters.report_writer import CannedReportWriter, build_report_writer
 from hfm.application.event_sink import ReviewEventSink
 from hfm.application.review_graph import GraphDeps, build_review_graph
@@ -53,6 +56,7 @@ from hfm.platform.db import build_engine, session_factory
 from hfm.platform.dependencies import AppDeps, Deps
 from hfm.platform.logging import configure_logging
 from hfm.platform.review_runner import ReviewRunner
+from hfm.ports import EventBus
 
 __all__ = ["AppDeps", "create_app", "production_deps"]
 
@@ -67,6 +71,20 @@ def token_verifier(settings: Settings) -> GoogleTokenVerifier:
         else StaticKey.from_file(settings.auth_public_key_file)
     )
     return GoogleTokenVerifier(settings.google_client_id, settings.auth_issuer, keys)
+
+
+@asynccontextmanager
+async def open_event_bus(redis_url: SecretStr | None) -> AsyncIterator[EventBus]:
+    """Live events cross processes through Redis when a URL is set; otherwise they stay in this
+    process, which must then serve every request of a review it runs."""
+    if redis_url is None:
+        yield InMemoryEventBus()
+        return
+    bus = RedisEventBus(redis_url.get_secret_value())
+    try:
+        yield bus
+    finally:
+        await bus.aclose()
 
 
 @asynccontextmanager
@@ -89,7 +107,7 @@ async def production_deps(settings: Settings) -> AsyncIterator[AppDeps]:
         card_client = A2ACardAgentClient()
         stack.push_async_callback(card_client.aclose)
         store = PostgresReviewEventStore(sessions)
-        bus = InMemoryEventBus()
+        bus = await stack.enter_async_context(open_event_bus(settings.redis_url))
         sink = ReviewEventSink(store, bus)
         graph_deps = GraphDeps(
             card_client, PostgresMerchantMemory(sessions), budget, writer, sink, card_agents

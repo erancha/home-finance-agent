@@ -11,6 +11,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from testcontainers.community.postgres import PostgresContainer
+from testcontainers.community.redis import RedisContainer
 
 from hfm.platform.config import Settings
 
@@ -39,3 +40,11 @@ def pg_url() -> Iterator[str]:
             else:
                 os.environ["DATABASE_URL"] = previous
         yield url
+
+
+@pytest.fixture(scope="module")
+def redis_url() -> Iterator[str]:
+    with RedisContainer("redis:7-alpine") as container:
+        host = container.get_container_host_ip()
+        port = container.get_exposed_port(container.port)
+        yield f"redis://{host}:{port}/0"

@@ -205,6 +205,8 @@ pyyaml==6.0.3
     #   hfm (pyproject.toml)
     #   langchain-core
     #   uvicorn
+redis==8.1.0
+    # via hfm (pyproject.toml)
 regex==2026.9.29
     # via tiktoken
 requests==2.34.2

@@ -72,7 +72,7 @@ card agent is deployed from its own repo and connected at the end.
 4. **Start:**
 
    ```bash
-   ./scripts/start.sh      # database, migrations and the agent, in Docker
+   ./scripts/start.sh      # database, Redis, migrations and the agent's replicas, in Docker
    ```
 
    Once the agent is up, the script ends by printing this agent's Google client id:
@@ -126,7 +126,7 @@ All live in `scripts/`; run with `--help` for full usage.
 |---|---|
 | `init-env.sh` | Create `backend/.env` and an empty card-agent registry; `--force` overwrites the env file. |
 | `add-card-agent.sh` | Connect a card agent, or replace its entry, in `backend/card-agents.yaml`. |
-| `start.sh` | Run database, migrations and the agent in Docker, or `--host` with the agent as a local process (the page is rebuilt when its sources changed); prints the Google client id a card agent registers this agent with. |
+| `start.sh` | Run database, Redis, migrations and the agent's replicas behind an nginx edge in Docker, or `--host` with the agent as a local process (the page is rebuilt when its sources changed); prints the Google client id a card agent registers this agent with. |
 | `docker-helper.sh` | Stop, follow logs, or show status of the Docker stack. |
 | `sql-helper.sh` | Row counts of every database table (`--counts`), or their contents (`--rows`). |
 | `test.sh` | Backend and frontend checks; `e2e` runs whole reviews through both agents. |

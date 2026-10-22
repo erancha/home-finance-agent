@@ -103,3 +103,15 @@ def test_token_verification_defaults_to_google(env: pytest.MonkeyPatch) -> None:
     settings = Settings()
     assert settings.auth_issuer == "hfm-e2e"
     assert settings.auth_public_key_file == Path("/e2e/public.pem")
+
+
+def test_redis_url_is_optional_and_kept_secret(env: pytest.MonkeyPatch) -> None:
+    env.setenv("LLM_MODEL", "openai:gpt-5-nano")
+    env.setenv("LLM_API_KEY", "k")
+    env.setenv("REDIS_URL", "")
+    assert Settings().redis_url is None
+    env.setenv("REDIS_URL", "redis://:hunter2@redis:6379/0")
+    url = Settings().redis_url
+    assert url is not None
+    assert url.get_secret_value() == "redis://:hunter2@redis:6379/0"
+    assert "hunter2" not in repr(url)

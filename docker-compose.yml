@@ -1,6 +1,7 @@
-# The home finance agent, its database and the nginx edge the browser reaches it through. The
-# scripts export backend/.env, CARD_AGENTS_FILE, the card-agent registry, and HOST_UID/HOST_GID,
-# the user who owns it, before calling compose; relative paths resolve from this repo's root.
+# The home finance agent's replicas, its database, the Redis that joins the replicas' live events
+# and the nginx edge the browser reaches it through. The scripts export backend/.env,
+# CARD_AGENTS_FILE, the card-agent registry, and HOST_UID/HOST_GID, the user who owns it, before
+# calling compose; relative paths resolve from this repo's root.
 x-manager-build: &manager-build
   context: .
   dockerfile: backend/Dockerfile
@@ -34,6 +35,16 @@ services:
       timeout: 3s
       retries: 15
 
+  # Carries live review events between the manager replicas; nothing is kept, so no volume.
+  redis:
+    image: redis:7-alpine
+    deploy: { resources: { limits: { memory: 64M } } }
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+
   migrate:
     build: *manager-build
     image: hfm-manager:local
@@ -52,7 +63,14 @@ services:
       uvicorn hfm.platform.app:create_app --factory --host 0.0.0.0 --port 8010
       --timeout-graceful-shutdown 5
     env_file: *manager-env-file
-    environment: *manager-env
+    environment:
+      <<: *manager-env
+      # Live events cross the replicas through Redis. To run on the in-process bus instead, blank
+      # this value (a blank counts as unset) and set replicas to 1 below: a stream held by a
+      # replica other than the one running the review would go quiet after its replay. The redis
+      # service may stay; idle, it costs nothing. start.sh --host is that single process,
+      # ready-made, with no Redis at all.
+      REDIS_URL: redis://redis:6379/0
     # The registry holds the card agents' secrets, so the scripts write it readable by its owner
     # alone; the manager runs as that user to read the mount. The image's own user serves migrate.
     user: "${HOST_UID:?run through ./scripts/start.sh}:${HOST_GID:?same}"
@@ -62,7 +80,15 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ${CARD_AGENTS_FILE:?run through ./scripts/start.sh}:/card-agents.yaml:ro
-    deploy: { resources: { limits: { memory: 512M } } }
+    # More than one replica shows a review served by whichever one takes each request; the edge
+    # spreads requests over all. Start them all before the first review and redeploy only while
+    # every review is waiting or completed: a replica that boots fails every running review,
+    # whoever runs it. To try another count without editing this file, scale the running stack
+    # from a shell that sourced scripts/common.sh and ran load_env (the compose interpolation
+    # needs its exports), then restart the edge, which resolves the replica addresses once at its
+    # own start: `compose up -d --scale manager=N --wait && compose restart edge`. The next
+    # start.sh returns to this count.
+    deploy: { replicas: 2, resources: { limits: { memory: 512M } } }
     healthcheck:
       test: ["CMD", "python", "-c",
              "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
@@ -71,6 +97,8 @@ services:
       retries: 20
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
