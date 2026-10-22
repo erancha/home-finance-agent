@@ -9,10 +9,11 @@ Core building blocks:
 - ReviewNotFoundError, ReviewConflictError, MonthReviewedError, DailyLimitError: the refusals the
   API maps to 404, 409, 409 and 429; a conflict is a review whose status does not allow the request
 
-Every start fetches from the card agents and has a model write the report, so starts are rationed
-per person: a person's month has one standing review until they clear it, and at most
-DAILY_REVIEW_LIMIT of their reviews start in any REVIEW_LIMIT_WINDOW, cleared ones included. A
-cleared review is gone to the API, and so is another person's review: both are not found.
+Every start fetches from the card agents and, unless the person's report memory holds the text
+for the same totals, has a model write the report, so starts are rationed per person: a person's
+month has one standing review until they clear it, and at most DAILY_REVIEW_LIMIT of their reviews
+start in any REVIEW_LIMIT_WINDOW, cleared ones included. A cleared review is gone to the API, and
+so is another person's review: both are not found.
 
 A run that reaches a card agent carries the person's ID token in a run-scoped context variable,
 set around the invocation and never written anywhere.
@@ -198,8 +199,9 @@ class ReviewRunner:
         self, user: User, review_id: str, categories: Mapping[str, Any]
     ) -> None:
         """Rerun a completed review with categories chosen for its merchants: they are remembered,
-        the totals recomputed and the report rewritten. Raises InvalidAnswersError, leaving the
-        review completed, for a merchant not in the review or an illegal category.
+        the totals recomputed and the report redone, from the report memory when the totals are
+        unchanged. Raises InvalidAnswersError, leaving the review completed, for a merchant not in
+        the review or an illegal category.
         """
         async with self._status_lock:
             review = await self.review(user, review_id)

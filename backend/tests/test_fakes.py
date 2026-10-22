@@ -15,6 +15,7 @@ from hfm.ports import (
     CardAgentClient,
     EventBus,
     MerchantMemory,
+    ReportMemory,
     ReportWriter,
     ReviewEventStore,
     ReviewRepository,
@@ -27,6 +28,7 @@ from tests.fakes import (
     FakeTokenVerifier,
     InMemoryEventBus,
     InMemoryMerchantMemory,
+    InMemoryReportMemory,
     InMemoryReviewEventStore,
     InMemoryReviewRepository,
     ScriptedCardAgentClient,
@@ -42,6 +44,7 @@ def test_fakes_satisfy_their_ports() -> None:
     assert isinstance(InMemoryReviewRepository(), ReviewRepository)
     assert isinstance(InMemoryReviewEventStore(), ReviewEventStore)
     assert isinstance(InMemoryMerchantMemory(), MerchantMemory)
+    assert isinstance(InMemoryReportMemory(), ReportMemory)
     assert isinstance(FakeReportWriter(), ReportWriter)
     assert isinstance(InMemoryEventBus(), EventBus)
     assert isinstance(FakeTokenVerifier({}), TokenVerifier)
@@ -67,6 +70,16 @@ async def test_review_repository_refuses_a_duplicate_id_and_keeps_the_original()
     with pytest.raises(ValueError, match="r1"):
         await reviews.add(replace(original, month="2026-08"))
     assert await reviews.get("r1") == original
+
+
+async def test_report_memory_returns_the_users_own_text_for_each_exact_prompt() -> None:
+    reports = InMemoryReportMemory()
+    await reports.remember("1001", "2026-09", "prompt", "a report")
+    await reports.remember("1001", "2026-09", "changed", "another report")
+    assert await reports.lookup("1001", "prompt") == "a report"
+    assert await reports.lookup("1001", "changed") == "another report"
+    assert await reports.lookup("1001", "prompt ") is None
+    assert await reports.lookup("1002", "prompt") is None
 
 
 async def test_merchant_memory_returns_the_users_known_keys_and_upserts() -> None:

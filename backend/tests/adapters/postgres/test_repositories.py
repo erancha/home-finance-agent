@@ -5,10 +5,13 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from hfm.adapters.postgres.orm import ReportMemoryRow
 from hfm.adapters.postgres.repositories import (
     PostgresMerchantMemory,
+    PostgresReportMemory,
     PostgresReviewEventStore,
     PostgresReviewRepository,
 )
@@ -104,6 +107,55 @@ async def test_merchant_memory_lookup_and_upsert_per_user(sessions) -> None:
         "m-aroma": "dining",
     }
     assert await memory.lookup(OTHER_USER, ["m-shufersal", "m-aroma"]) == {"m-shufersal": "other"}
+
+
+RETENTION = timedelta(days=90)
+
+
+async def age_report(sessions, user_id: str, prompt_text: str, age: timedelta) -> None:
+    """Backdates a remembered report's write time, as a long-kept row looks."""
+    async with sessions.begin() as session:
+        await session.execute(
+            update(ReportMemoryRow)
+            .where(ReportMemoryRow.user_id == user_id, ReportMemoryRow.prompt == prompt_text)
+            .values(written_at=datetime.now(UTC) - age)
+        )
+
+
+async def test_report_memory_returns_the_users_own_text_for_each_exact_prompt(sessions) -> None:
+    reports = PostgresReportMemory(sessions, RETENTION)
+    await reports.remember(USER, "2026-09", "prompt", "a report")
+    await reports.remember(USER, "2026-09", "changed", "a new report")
+    await reports.remember(OTHER_USER, "2026-09", "prompt", "another report")
+    assert await reports.lookup(USER, "prompt") == "a report"
+    assert await reports.lookup(USER, "changed") == "a new report"
+    assert await reports.lookup(USER, "prompt ") is None
+    assert await reports.lookup(OTHER_USER, "prompt") == "another report"
+    async with sessions() as session:
+        stored = await session.scalars(
+            select(ReportMemoryRow.month).where(ReportMemoryRow.user_id == USER)
+        )
+    assert list(stored) == ["2026-09", "2026-09"]
+
+
+async def test_report_memory_forgets_the_users_rows_past_retention_when_it_writes(
+    sessions,
+) -> None:
+    reports = PostgresReportMemory(sessions, RETENTION)
+    await reports.remember(USER, "2026-07", "old", "an old report")
+    await reports.remember(USER, "2026-08", "recent", "a recent report")
+    await reports.remember(OTHER_USER, "2026-07", "old", "someone else's old report")
+    await age_report(sessions, USER, "old", RETENTION + timedelta(days=1))
+    await age_report(sessions, USER, "recent", RETENTION - timedelta(days=1))
+    await age_report(sessions, OTHER_USER, "old", RETENTION + timedelta(days=1))
+    assert await reports.lookup(USER, "old") == "an old report"
+
+    await reports.remember(USER, "2026-09", "new", "a new report")
+
+    assert await reports.lookup(USER, "old") is None
+    assert await reports.lookup(USER, "recent") == "a recent report"
+    assert await reports.lookup(USER, "new") == "a new report"
+    assert await reports.lookup(OTHER_USER, "old") == "someone else's old report"
 
 
 async def test_list_by_status_returns_matching_reviews_oldest_first(sessions) -> None:

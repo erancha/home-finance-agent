@@ -5,21 +5,29 @@ Core building blocks:
   uncleared
 - PostgresReviewEventStore: per-review event log, sequence assigned under a review row lock
 - PostgresMerchantMemory: per-user merchant key to category upserts
+- PostgresReportMemory: per-user prompt digest to report text, written once; a write forgets
+  the user's rows older than the retention it was built with
 
 Each call runs in its own session; a write commits before the call returns.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hfm.adapters.postgres.orm import MerchantMemoryRow, ReviewEventRow, ReviewRow
+from hfm.adapters.postgres.orm import (
+    MerchantMemoryRow,
+    ReportMemoryRow,
+    ReviewEventRow,
+    ReviewRow,
+)
 from hfm.domain.events import ReviewEvent
 from hfm.domain.models import Review, ReviewStatus
 
@@ -172,3 +180,40 @@ class PostgresMerchantMemory:
         )
         async with self._sessions.begin() as session:
             await session.execute(statement)
+
+
+class PostgresReportMemory:
+    def __init__(self, sessions: async_sessionmaker[AsyncSession], retention: timedelta) -> None:
+        self._sessions = sessions
+        self._retention = retention
+
+    async def lookup(self, user_id: str, prompt: str) -> str | None:
+        async with self._sessions() as session:
+            return await session.scalar(
+                select(ReportMemoryRow.text).where(
+                    ReportMemoryRow.user_id == user_id,
+                    ReportMemoryRow.prompt_digest == _digest(prompt),
+                )
+            )
+
+    async def remember(self, user_id: str, month: str, prompt: str, text: str) -> None:
+        async with self._sessions.begin() as session:
+            await session.execute(
+                delete(ReportMemoryRow).where(
+                    ReportMemoryRow.user_id == user_id,
+                    ReportMemoryRow.written_at < func.now() - self._retention,
+                )
+            )
+            session.add(
+                ReportMemoryRow(
+                    user_id=user_id,
+                    prompt_digest=_digest(prompt),
+                    month=month,
+                    prompt=prompt,
+                    text=text,
+                )
+            )
+
+
+def _digest(prompt: str) -> str:
+    return hashlib.sha256(prompt.encode()).hexdigest()

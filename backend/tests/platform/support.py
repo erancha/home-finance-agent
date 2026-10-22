@@ -33,6 +33,7 @@ from tests.fakes import (
     FakeTokenVerifier,
     InMemoryEventBus,
     InMemoryMerchantMemory,
+    InMemoryReportMemory,
     InMemoryReviewEventStore,
     InMemoryReviewRepository,
     ScriptedCardAgentClient,
@@ -148,7 +149,13 @@ def app_deps(
     bus = InMemoryEventBus()
     sink = ReviewEventSink(store, bus, lambda: EVENT_TIME)
     graph_deps = GraphDeps(
-        client, InMemoryMerchantMemory(), BUDGET, FakeReportWriter(REPORT), sink, {"amex": AMEX}
+        client,
+        InMemoryMerchantMemory(),
+        BUDGET,
+        FakeReportWriter(REPORT),
+        InMemoryReportMemory(),
+        sink,
+        {"amex": AMEX},
     )
     graph = build_review_graph(graph_deps, InMemorySaver(serde=checkpoint_serde()))
     return AppDeps(

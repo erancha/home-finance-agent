@@ -16,7 +16,12 @@ from hfm.ports.card_agent import (
 )
 from hfm.ports.events import EventBus
 from hfm.ports.report import ReportWriter
-from hfm.ports.repositories import MerchantMemory, ReviewEventStore, ReviewRepository
+from hfm.ports.repositories import (
+    MerchantMemory,
+    ReportMemory,
+    ReviewEventStore,
+    ReviewRepository,
+)
 
 __all__ = [
     "SIGN_IN_REQUIRED",
@@ -26,6 +31,7 @@ __all__ = [
     "EventBus",
     "InputRequired",
     "MerchantMemory",
+    "ReportMemory",
     "ReportWriter",
     "ReviewEventStore",
     "ReviewRepository",
