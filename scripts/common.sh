@@ -67,18 +67,21 @@ require_docker() {
 
 compose() { (cd "$ROOT" && docker compose -f "$COMPOSE_FILE" "$@"); }
 
-# The venv is current only when it was installed from pyproject.toml as it stands now: the stamp is
-# a copy taken after the last successful install, so editing the dependency list forces a
-# reinstall. The import and executable probe still catches a venv broken with the stamp intact.
+# The venv holds the runtime dependencies at the exact pins the image installs (requirements.txt
+# as a constraint), so the suite runs on what ships; the dev tools float within pyproject.toml. It
+# is current only when installed from both files as they stand now: the stamp is a copy taken
+# after the last successful install, so editing either forces a reinstall. The import and
+# executable probe still catches a venv broken with the stamp intact.
 ensure_venv() {
   [ -d "$VENV" ] || python3 -m venv "$VENV"
-  local stamp="$VENV/.pyproject.stamp"
-  if ! cmp -s "$BACKEND/pyproject.toml" "$stamp" \
+  local stamp="$VENV/.dependencies.stamp"
+  if ! cat "$BACKEND/pyproject.toml" "$BACKEND/requirements.txt" | cmp -s - "$stamp" \
      || ! { "$VENV/bin/python" -c "import hfm" 2>/dev/null \
             && [ -x "$VENV/bin/uvicorn" ] && [ -x "$VENV/bin/pytest" ]; }; then
     echo "Installing backend dependencies into backend/.venv..."
-    ( cd "$BACKEND" && "$VENV/bin/pip" install --quiet --disable-pip-version-check -e ".[dev]" )
-    cp "$BACKEND/pyproject.toml" "$stamp"
+    ( cd "$BACKEND" && "$VENV/bin/pip" install --quiet --disable-pip-version-check \
+        --constraint requirements.txt -e ".[dev]" )
+    cat "$BACKEND/pyproject.toml" "$BACKEND/requirements.txt" > "$stamp"
   fi
 }
 

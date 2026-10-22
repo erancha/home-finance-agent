@@ -23,6 +23,8 @@ Package `hfm` in `backend/src`: `platform → application → ports → domain`;
 - `./scripts/docker-helper.sh --stop [--volumes] | --logs [-e] | --ps`.
 - `./scripts/sql-helper.sh [--counts | --rows | -f <file> | psql-args]`: psql on the stack's
   database; `--counts`/`--rows` run `scripts/sql/all-tables.sql`.
+- `./scripts/lock.sh`: recompile `backend/requirements.txt` inside the Dockerfile's Python image
+  after editing the dependency list; the test venv installs under its pins.
 - `./scripts/test.sh [backend | frontend[=unit] | e2e [--amex-dir D]]`: the gate is `backend` +
   `frontend`; the e2e is the one place both repos meet.
 
