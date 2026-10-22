@@ -40,6 +40,24 @@ button.secondary, .button.secondary { background: transparent; color: var(--acce
 /* A step the person must take elsewhere before continue can succeed. */
 .button.prerequisite { background: transparent; color: var(--bad); border-color: var(--bad); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
+/* A button that just became the expected next step leads the eye to it: an arc in the label's
+   color sweeps its edge for three seconds from the moment it mounts, then goes. The overlay is
+   masked down to a two-pixel band over the border, so the sweep never crosses the label. The
+   angle is a registered property so the sweep can be animated at all. */
+@property --sweep { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+.border-sweep { position: relative; --sweep-seconds: 3; }
+.border-sweep::before {
+  content: ""; position: absolute; inset: -1px; padding: 2px; border-radius: inherit; opacity: 0;
+  background: conic-gradient(from var(--sweep), transparent 70%, currentColor);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: border-sweep calc(var(--sweep-seconds) * 1s) linear;
+}
+@keyframes border-sweep {
+  from { --sweep: 0deg; opacity: 1; }
+  85% { opacity: 1; }
+  to { --sweep: calc(var(--sweep-seconds) * 1.4 * 360deg); opacity: 0; }
+}
 .month-picker { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end; }
 .month-picker p { flex-basis: 100%; margin: 0; }
 .month-picker label { display: grid; gap: 0.2rem; }
@@ -74,6 +92,8 @@ td[dir="auto"] { text-align: left; }
 .notice { background: #fff6dd; border: 1px solid #e6cf85; padding: 0.5rem 0.75rem; }
 .error { color: var(--bad); }
 .table-scroll { overflow-x: auto; }
+/* The apply button sits clear of the last row's rule. */
+.table-scroll + button { margin-top: 1rem; }
 /* The raw transactions keep one line per row; only a long merchant name wraps. */
 .transactions { font-size: 0.85em; }
 .transactions th, .transactions td { white-space: nowrap; }
