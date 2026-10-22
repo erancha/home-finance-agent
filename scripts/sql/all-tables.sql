@@ -1,5 +1,5 @@
--- Row count of every table in the public schema, or with -v rows=1 the contents of every non-empty
--- table instead. sql-helper.sh --counts and --rows run this file.
+-- Row count of every table in the public schema, or with -v rows=1 the first :limit rows of every
+-- table instead (-v limit=N). sql-helper.sh --counts and --rows run this file.
 --
 -- pg_tables is read at run time, so the report follows the live schema as migrations add tables.
 -- In row dumps every value is cut to 80 characters, since LangGraph's checkpoint JSON runs long,
@@ -11,7 +11,7 @@ FROM (
   FROM pg_tables t
   WHERE t.schemaname = 'public'
   UNION ALL
-  SELECT t.tablename, 1 AS ord, format('SELECT %s FROM %I', cols.list, t.tablename)
+  SELECT t.tablename, 1 AS ord, format('SELECT %s FROM %I LIMIT %s', cols.list, t.tablename, :limit)
   FROM pg_tables t
   JOIN LATERAL (
     SELECT string_agg(
