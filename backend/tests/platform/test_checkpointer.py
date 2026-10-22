@@ -6,6 +6,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from hfm.application.review_graph import checkpoint_serde
 from hfm.domain.models import TaskRef
 from hfm.platform.checkpointer import libpq_dsn, open_checkpointer
+from tests.platform.database_outage import sever_every_other_connection
 
 
 def test_libpq_dsn_drops_driver_suffix() -> None:
@@ -65,3 +66,16 @@ async def test_default_serde_loses_the_task_but_the_allow_list_restores_it() -> 
     assert lost == {"agent": "amex", "task_id": "task-1", "context_id": "ctx-1"}
     assert type(kept) is TaskRef
     assert kept == task
+
+
+async def test_checkpointer_survives_a_database_restart(pg_url: str) -> None:
+    checkpoint = empty_checkpoint()
+    config = {"configurable": {"thread_id": "t-restart", "checkpoint_ns": ""}}
+    async with open_checkpointer(libpq_dsn(pg_url)) as saver:
+        stored = await saver.aput(
+            config, checkpoint, {"source": "input", "step": 0, "parents": {}}, {}
+        )
+        await sever_every_other_connection(pg_url)
+        tuple_ = await saver.aget_tuple(stored)
+    assert tuple_ is not None
+    assert tuple_.checkpoint["id"] == checkpoint["id"]

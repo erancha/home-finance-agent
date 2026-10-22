@@ -6,6 +6,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg import AsyncConnection
+from psycopg.rows import DictRow, dict_row
+from psycopg_pool import AsyncConnectionPool
 
 from hfm.application.review_graph import checkpoint_serde
 
@@ -19,6 +22,22 @@ def libpq_dsn(database_url: str) -> str:
 
 @asynccontextmanager
 async def open_checkpointer(dsn: str) -> AsyncIterator[AsyncPostgresSaver]:
-    async with AsyncPostgresSaver.from_conn_string(dsn, serde=checkpoint_serde()) as saver:
+    """Connections come from a pool that pings each one before handing it out, so a connection
+    the database dropped (a restart, a failover) is replaced on the next checkout. The connection
+    settings are the ones the saver's own from_conn_string applies, so the pool stands in for it.
+    """
+    # One warm connection covers the usual lone review; a few more let concurrent reviews
+    # checkpoint without queuing behind each other.
+    pool = AsyncConnectionPool(
+        dsn,
+        connection_class=AsyncConnection[DictRow],
+        kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
+        min_size=1,
+        max_size=4,
+        check=AsyncConnectionPool.check_connection,
+        open=False,
+    )
+    async with pool:
+        saver = AsyncPostgresSaver(conn=pool, serde=checkpoint_serde())
         await saver.setup()
         yield saver
