@@ -122,7 +122,7 @@ checks the shutdown handler restores the default action in its place.
 | `test_architecture.py` | Runs `lint-imports` inside pytest. |
 | `test_requirements_lock.py` | Every direct dependency is pinned exactly in `requirements.txt`, the lock was compiled on the Python the image runs (`scripts/lock.sh`), and both the Dockerfile and the test venv install under it. |
 | `test_readme_toc.py` | Every README contents link reaches a heading. |
-| `test_docker_compose_ports.py` | Postgres is published on `127.0.0.1` only; only the home finance agent (8010) and, in the end-to-end file, amex-agent (8020) listen on every interface. |
+| `test_docker_compose_ports.py` | Postgres is published on `127.0.0.1` only; only the nginx edge (8010) and, in the end-to-end file, amex-agent (8020) listen on every interface, and the home finance agent itself publishes no port. |
 | `test_env_example.py` | `backend/.env.example` documents every settings key and nothing else beyond the named operational keys. |
 
 ## Frontend
@@ -160,10 +160,10 @@ half under the issuer `hfm-e2e` (`AUTH_PUBLIC_KEY_FILE`, `APP_AUTH_PUBLIC_KEY_FI
 the callers file registering the manager with a throwaway secret and the registry connecting the
 manager to amex-agent at its service address with that secret, which test.sh mounts as the
 manager's `CARD_AGENTS_FILE`. The script then runs `scripts/tests/e2e/run_review.py` against
-`http://localhost:8010` the way a person would: sign in, start a review, read its event stream,
-load the missing statement on the agent's page, answer. It refuses to run while the development
-stack or an earlier `hfm-e2e` stack is up, and removes the project, its volume and the folders on
-every exit.
+`http://localhost:8010`, through the nginx edge, the way a person would: sign in, start a review,
+read its event stream, load the missing statement on the agent's page, answer. It refuses to run
+while the development stack or an earlier `hfm-e2e` stack is up, and removes the project, its
+volume and the folders on every exit.
 
 The script prints one `PASS:` line per check, 21 in all, for a 2026-10 review:
 

@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 #
-# Run the home finance agent: database, migrations and manager. Docker is the default; --host runs
-# the manager as a local process for fast restarts and debugger attach. Either way the page is
-# http://localhost:8010 (the React app at /); the manager listens on every interface, so other
-# devices on the network use this machine's address.
+# Run the home finance agent: database, migrations, manager and, in Docker, the nginx edge the
+# browser reaches it through. Docker is the default; --host runs the manager as a local process for
+# fast restarts and debugger attach. Either way the page is http://localhost:8010 (the React app at
+# /), served on every interface, so other devices on the network use this machine's address.
 #
-#   ./scripts/start.sh            # db, migrations and manager via docker compose
+#   ./scripts/start.sh            # db, migrations, manager and edge via docker compose
 #   ./scripts/start.sh --host     # db in Docker; manager (uvicorn) on the host
 #
 # Docker mode builds the image, applies migrations in a one-shot service and returns once the
-# manager is healthy. Host mode provisions backend/.venv, starts PostgreSQL via compose, applies
-# migrations, rebuilds the frontend when its sources changed, and runs uvicorn; Ctrl-C stops it.
+# manager answers through the edge. Host mode provisions backend/.venv, starts PostgreSQL via
+# compose, applies migrations, rebuilds the frontend when its sources changed, and runs uvicorn;
+# Ctrl-C stops it.
 #
 # As it brings the manager up, the script prints this agent's Google client id, which a card
 # agent's operator registers it as a caller with. Card agents come from backend/card-agents.yaml
@@ -42,10 +43,10 @@ require_docker
 MANAGER=http://localhost:8010
 
 if [ "$HOST" -eq 0 ]; then
-  echo "Deploying db + migrations + manager to Docker..."
+  echo "Deploying db + migrations + manager + edge to Docker..."
   compose up -d --build
   wait_for_url "$MANAGER/health" \
-    || { echo "manager did not become healthy; see ./scripts/docker-helper.sh --logs" >&2
+    || { echo "the stack did not answer on $MANAGER; see ./scripts/docker-helper.sh --logs" >&2
          exit 1; }
   echo "Open $MANAGER in your browser and sign in with Google."
   echo "  health: $MANAGER/health   ready: $MANAGER/ready"
