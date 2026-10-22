@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { ReviewEvent } from '../../api/types.ts'
+import { CollapsibleSection } from '../../components/CollapsibleSection.tsx'
 import { formatTimestamp } from '../../format.ts'
 
 const INPUT_REQUIRED = 'TASK_STATE_INPUT_REQUIRED'
@@ -36,12 +37,18 @@ function describe(event: ReviewEvent): ReactNode {
   }
 }
 
-/** working: the review is busy on the server, so the last event's line ends with a spinner. */
-export function EventFeed({ events, working }: { events: ReviewEvent[]; working: boolean }) {
+interface Props {
+  events: ReviewEvent[]
+  /** The review is busy on the server, so the last event's line ends with a spinner. */
+  working: boolean
+  /** The review has not ended, so the feed stays unfolded; it folds once the review ended. */
+  inProgress: boolean
+}
+
+export function EventFeed({ events, working, inProgress }: Props) {
   const spinner = <span className="spinner" role="status" aria-label="Working" />
   return (
-    <section>
-      <h2>Progress</h2>
+    <CollapsibleSection key={String(inProgress)} title="Progress" defaultCollapsed={!inProgress}>
       <ul className="feed">
         {events.map((event, index) => (
           <li key={index}>
@@ -54,6 +61,6 @@ export function EventFeed({ events, working }: { events: ReviewEvent[]; working:
         ))}
         {working && events.length === 0 && <li className="feed-bare">{spinner}</li>}
       </ul>
-    </section>
+    </CollapsibleSection>
   )
 }
