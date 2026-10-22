@@ -107,10 +107,13 @@ describe('ReviewPage', () => {
     expect(api.answerReview).toHaveBeenCalledExactlyOnceWith('r1', { 'cat:שופרסל': 'dining' })
     await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument())
 
+    const progress = () => screen.getByRole('button', { name: 'Progress' })
+    expect(progress()).toHaveAttribute('aria-expanded', 'true')
     emit('review.totals', totals, 3)
     emit('review.report', { text: 'Budget review for 2026-09' }, 4)
     expect(screen.getByText('121 / 100')).toBeInTheDocument()
     expect(screen.getByText('Budget review for 2026-09')).toBeInTheDocument()
+    expect(progress()).toHaveAttribute('aria-expanded', 'false')
   })
 
   it('lists the raw transactions of the category chosen in the totals, and all from Totals', async () => {

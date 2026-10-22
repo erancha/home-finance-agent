@@ -205,7 +205,9 @@ export function ReviewPage() {
       {failure?.type === 'review.failed' && (
         <p role="alert" className="failure">Review failed: {failure.data.message}</p>
       )}
-      {reviewId !== null && <EventFeed events={events} working={inProgress && pause === null} />}
+      {reviewId !== null && (
+        <EventFeed events={events} working={inProgress && pause === null} inProgress={inProgress} />
+      )}
       {pause !== null && (
         <QuestionCard
           key={pause.seq}
