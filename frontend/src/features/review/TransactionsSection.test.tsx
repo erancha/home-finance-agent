@@ -119,6 +119,38 @@ describe('TransactionsSection', () => {
     expect(screen.getByRole('button', { name: 'Apply categories' })).toBeDisabled()
   })
 
+  it('moves focus to the apply button and sweeps its edge on every category change', async () => {
+    const user = userEvent.setup()
+    render(
+      <TransactionsSection
+        events={[batch(row, { ...row, id: 't2', merchantKey: 'gett', merchant: 'Gett' })]}
+        totals={totals}
+        onRecategorize={vi.fn().mockResolvedValue(true)}
+        category={null}
+        standingOrders={false}
+        onStandingOrders={vi.fn()}
+        inProgress
+        picks={0}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Raw transactions (2)' }))
+    const idle = screen.getByRole('button', { name: 'Apply categories' })
+    expect(idle).not.toHaveClass('border-sweep')
+    expect(idle).not.toHaveFocus()
+
+    const [first, second] = screen.getAllByRole('combobox')
+    await user.selectOptions(first, 'groceries')
+    const once = screen.getByRole('button', { name: 'Apply categories (1 merchant)' })
+    expect(once).toHaveClass('border-sweep')
+    expect(once).toHaveFocus()
+
+    await user.selectOptions(second, 'groceries')
+    const twice = screen.getByRole('button', { name: 'Apply categories (2 merchants)' })
+    expect(twice).not.toBe(once)
+    expect(twice).toHaveClass('border-sweep')
+    expect(twice).toHaveFocus()
+  })
+
   it('keeps the choices when the server refuses them', async () => {
     const user = userEvent.setup()
     const onRecategorize = vi.fn().mockResolvedValue(false)

@@ -49,6 +49,9 @@ export function TransactionsSection({
 }: Props) {
   const [pending, setPending] = useState<MerchantCategories>({})
   const [applying, setApplying] = useState(false)
+  // Counts the category changes; each one remounts the apply button so it takes focus and its
+  // edge sweep starts over.
+  const [edits, setEdits] = useState(0)
   // Latched: the first low-confidence row seen while the review is in progress unfolds the
   // section once; folding it afterwards, or the review ending, does not reopen or close it.
   const [unfoldedForLow, setUnfoldedForLow] = useState(false)
@@ -129,9 +132,10 @@ export function TransactionsSection({
                     <select
                       aria-label={`Category for ${t.merchant} on ${t.transactionDate}`}
                       value={pending[t.merchantKey] ?? counted(t)}
-                      onChange={(e) =>
+                      onChange={(e) => {
                         setPending((current) => ({ ...current, [t.merchantKey]: e.target.value }))
-                      }
+                        setEdits((count) => count + 1)
+                      }}
                     >
                       {counted(t) === 'uncategorized' && (
                         <option value="uncategorized" disabled>
@@ -159,7 +163,14 @@ export function TransactionsSection({
         </table>
       </div>
       {onRecategorize !== null && (
-        <button type="button" disabled={changed === 0 || applying} onClick={apply}>
+        <button
+          key={edits}
+          type="button"
+          className={changed > 0 ? 'border-sweep' : undefined}
+          autoFocus={edits > 0}
+          disabled={changed === 0 || applying}
+          onClick={apply}
+        >
           Apply categories{changed > 0 && ` (${changed} merchant${changed === 1 ? '' : 's'})`}
         </button>
       )}
