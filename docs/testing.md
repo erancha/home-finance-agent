@@ -120,7 +120,7 @@ checks the shutdown handler restores the default action in its place.
 | Test | Guards |
 |---|---|
 | `test_architecture.py` | Runs `lint-imports` inside pytest. |
-| `test_requirements_lock.py` | Every direct dependency is pinned exactly in `requirements.txt`, and the Dockerfile installs from it. |
+| `test_requirements_lock.py` | Every direct dependency is pinned exactly in `requirements.txt`, the lock was compiled on the Python the image runs (`scripts/lock.sh`), and both the Dockerfile and the test venv install under it. |
 | `test_readme_toc.py` | Every README contents link reaches a heading. |
 | `test_docker_compose_ports.py` | Postgres is published on `127.0.0.1` only; only the home finance agent (8010) and, in the end-to-end file, amex-agent (8020) listen on every interface. |
 | `test_env_example.py` | `backend/.env.example` documents every settings key and nothing else beyond the named operational keys. |
@@ -191,8 +191,9 @@ the agent.
 `.github/workflows/ci.yml` runs on every push and pull request, with two jobs on the same script
 developers use:
 
-- `backend`: Python 3.12, `bash scripts/test.sh backend`. The Testcontainers database runs on the
-  runner's Docker.
+- `backend`: Python 3.14, `bash scripts/test.sh backend`. The venv installs the runtime
+  dependencies at the pins of `backend/requirements.txt`, the lock the image installs, so the suite
+  runs on what ships. The Testcontainers database runs on the runner's Docker.
 - `frontend`: Node 22, `bash scripts/test.sh frontend`.
 
 The end-to-end test needs the Java repo beside this one, so CI does not run it.

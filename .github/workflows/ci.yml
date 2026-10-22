@@ -13,9 +13,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          # The floor in backend/pyproject.toml and the python:3.12-slim image the home finance
-          # agent ships on.
-          python-version: "3.12"
+          # The python:3.14-slim image the home finance agent ships on, so the suite runs on the
+          # interpreter and the pins of the container; backend/pyproject.toml keeps 3.12 as the
+          # floor for other machines.
+          python-version: "3.14"
       # ruff, mypy, import-linter contracts and pytest; the Postgres tests start a Testcontainers
       # database on the runner's Docker.
       - name: Backend tests
