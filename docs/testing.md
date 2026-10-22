@@ -33,6 +33,9 @@ import (`tests/auth_keys.py`) and verify them through the same code path with th
   reads, replaces an entry by name while keeping the others, starts from the empty registry
   `init-env.sh` writes, keeps the file owner-readable, and refuses blank options, values that are
   not plain scalars and a file it did not write, and writes the registry `CARD_AGENTS_FILE` names;
+- `scripts/tests/test_sql_helper.sh`: `sql-helper.sh --rows` dumps 20 rows of each table unless
+  `--limit` names another count, the count reaches the SQL as a psql variable, and a count that is
+  not a whole number is refused naming the option;
 - `ruff check src tests` (100-character lines);
 - `mypy` over `src`;
 - `lint-imports`: the four layer contracts of `backend/pyproject.toml` (see

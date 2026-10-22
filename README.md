@@ -128,7 +128,7 @@ All live in `scripts/`; run with `--help` for full usage.
 | `add-card-agent.sh` | Connect a card agent, or replace its entry, in `backend/card-agents.yaml`. |
 | `start.sh` | Run database, Redis, migrations and the agent's replicas behind an nginx edge in Docker, or `--host` with the agent as a local process (the page is rebuilt when its sources changed); prints the Google client id a card agent registers this agent with. |
 | `docker-helper.sh` | Stop, follow logs, or show status of the Docker stack. |
-| `sql-helper.sh` | Row counts of every database table (`--counts`), or their contents (`--rows`). |
+| `sql-helper.sh` | Row counts of every database table (`--counts`), or their first 20 rows (`--rows`, `--limit N` for more). |
 | `test.sh` | Backend and frontend checks; `e2e` runs whole reviews through both agents. |
 
 ## Testing
