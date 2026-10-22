@@ -1,14 +1,26 @@
+import type { ReactNode } from 'react'
 import type { ReviewEvent } from '../../api/types.ts'
 import { formatTimestamp } from '../../format.ts'
 
-function describe(event: ReviewEvent): string {
+const INPUT_REQUIRED = 'TASK_STATE_INPUT_REQUIRED'
+
+/** An agent's request for input is shown here alone; the question below offers only the action. */
+function statusText(state: string, text: string): ReactNode {
+  return state === INPUT_REQUIRED ? <span className="error">{text}</span> : text
+}
+
+function describe(event: ReviewEvent): ReactNode {
   switch (event.type) {
     case 'agent.discovered':
       return `Agent ${event.data.agent} discovered`
     case 'agent.status':
-      return event.data.text === null
-        ? `${event.data.agent}: ${event.data.state}`
-        : `${event.data.agent}: ${event.data.state} — ${event.data.text}`
+      return event.data.text === null ? (
+        `${event.data.agent}: ${event.data.state}`
+      ) : (
+        <>
+          {event.data.agent}: {event.data.state} — {statusText(event.data.state, event.data.text)}
+        </>
+      )
     case 'transactions.batch':
       return `${event.data.count} transactions from ${event.data.agent}`
     case 'review.question':

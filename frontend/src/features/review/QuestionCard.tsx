@@ -115,11 +115,15 @@ function AgentQuestion({
       <p className="question-name">
         <strong>{question.agent}</strong>
       </p>
-      <p dir="auto">{question.text}</p>
       {question.reason === SIGN_IN_REQUIRED && <SignInAgain />}
       {question.link !== null && (
         <p>
-          <a href={question.link} target="_blank" rel="noopener noreferrer">
+          <a
+            className="button prerequisite"
+            href={question.link}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             Open the {question.agent} statements page
           </a>
         </p>

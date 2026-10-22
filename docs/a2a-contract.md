@@ -137,12 +137,15 @@ the fetch.
 ## Input required and continue
 
 When the agent has no statement for the month, the task enters `TASK_STATE_INPUT_REQUIRED` with a
-status message of two parts: a text part for the human, shown as the question, and a data part
+status message of two parts: a text part naming the condition in one sentence, and a data part
 
 ```json
 {"reason": "statement-missing", "month": "2026-09", "page": "/statements.html",
  "user": "<account id>"}
 ```
+
+The text is for the human: the review shows it in red in its progress, and the question offers
+only the action, the page below and continue, so the text does not say what to do.
 
 - `reason`: `statement-missing`.
 - `month`: the billing month, `YYYY-MM`, that no statement covers.
