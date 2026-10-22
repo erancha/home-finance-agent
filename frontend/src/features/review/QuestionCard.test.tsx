@@ -98,7 +98,7 @@ describe('QuestionCard', () => {
     expect(screen.getByRole('option', { name: 'Not sure: keep groceries' })).toBeInTheDocument()
   })
 
-  it('links a statement request to the agent page in a new tab and offers only continue', async () => {
+  it('offers a statement request only its page, as a button in a new tab, and continue', async () => {
     const user = userEvent.setup()
     const onSubmit = vi.fn()
     const linked: Question = {
@@ -107,10 +107,12 @@ describe('QuestionCard', () => {
     }
     render(<QuestionCard questions={[linked]} submitting={false} onSubmit={onSubmit} />)
 
+    expect(screen.queryByText('No statement covers 2026-10.')).not.toBeInTheDocument()
     const link = screen.getByRole('link', { name: 'Open the amex statements page' })
     expect(link).toHaveAttribute('href', 'http://localhost:8020/statements.html')
     expect(link).toHaveAttribute('target', '_blank')
     expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(link).toHaveClass('button', 'prerequisite')
     expect(screen.queryByRole('button', { name: 'skip amex' })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'continue' }))
@@ -126,7 +128,7 @@ describe('QuestionCard', () => {
     }
     render(<QuestionCard questions={[signIn]} submitting={false} onSubmit={onSubmit} />)
 
-    expect(screen.getByText(signIn.text)).toBeInTheDocument()
+    expect(screen.queryByText(signIn.text)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'skip amex' })).not.toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: 'Continue with Google' }))
     expect(auth.signIn).toHaveBeenCalledExactlyOnceWith(FakeGoogleIdentity.credential)

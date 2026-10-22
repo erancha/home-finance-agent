@@ -227,7 +227,9 @@ Every step of a review is an event. `application/event_sink.py` appends it to th
 log in Postgres first, which assigns the next per-review sequence number, and then publishes it to
 live subscribers, so a subscriber never sees an event the log does not hold. It also stamps the
 event's data with `at`, the UTC time it was logged, so a replayed event shows when it happened;
-the page's progress list prefixes each message with that time in local `YYYY/MM/DD HH:MM:SS`.
+the page's progress list prefixes each message with that time in local `YYYY/MM/DD HH:MM:SS`. An
+input request's text is shown there in red, and the question below it offers only the action: the
+agent's page, as a button, and continue.
 
 | Event | Data |
 |---|---|
