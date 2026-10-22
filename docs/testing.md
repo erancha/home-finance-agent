@@ -65,7 +65,10 @@ month holding one standing review until it is cleared while another person revie
 independently, a person's reviews created since a time listed cleared ones included, and merchant
 memory upserts per person.
 `platform/test_checkpointer.py` round-trips a checkpoint through Postgres with `Decimal` and domain
-values intact, and shows the default serializer losing a domain value that the allow-list keeps.
+values intact, shows the default serializer losing a domain value that the allow-list keeps, and
+reads a checkpoint back after every server connection was terminated, as a database restart does;
+`platform/test_db.py` proves the same for the SQLAlchemy sessions. Both sever the connections
+through `tests/platform/database_outage.py`.
 
 **Graph.** `application/test_review_graph.py` runs the real graph on fakes and an in-memory
 checkpointer with the review's serializer. It covers the happy path, the totals carrying the

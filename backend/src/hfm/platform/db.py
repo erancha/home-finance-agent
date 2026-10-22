@@ -11,7 +11,9 @@ from sqlalchemy.ext.asyncio import (
 
 
 def build_engine(url: str) -> AsyncEngine:
-    return create_async_engine(url)
+    """Pooled connections are pinged before use, so a database restart costs only the requests
+    in flight when it happened; the stale connections are replaced on their next checkout."""
+    return create_async_engine(url, pool_pre_ping=True)
 
 
 def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

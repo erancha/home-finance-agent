@@ -286,8 +286,9 @@ One Postgres database (`postgres:16` in compose, published on `127.0.0.1:5434`):
 
 A person's merchant memory is shared by all their reviews and kept until changed, so a second
 review of the same month asks nothing; the end-to-end test therefore runs on a fresh database. The
-checkpointer holds one database connection, so after the database restarts, restart the home
-finance agent too.
+checkpointer and the repositories each draw connections from a pool that tests a connection
+before handing it out, so a database restart fails only the requests in flight at that moment;
+the home finance agent itself needs no restart.
 
 The merchant key is the normalised merchant text (`domain/merchants.py`): lower case, spaces
 collapsed, company suffixes and trailing number groups dropped. The rule is the home finance
