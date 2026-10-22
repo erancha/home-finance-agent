@@ -66,7 +66,7 @@ starts at `recategorize` instead of `discover`, so nothing is fetched again.
 | `pose` | Builds the questions (one per merchant with an uncategorized or `low`-confidence row, not left unanswered earlier, one per agent waiting for input), emits `review.question` and stores the questions. |
 | `ask` | Calls `interrupt()` with the stored questions; on resume checks the answers, remembers the chosen categories, marks unanswered merchants and skipped agents, and emits `review.totals` again when something changed. |
 | `recategorize` | Remembers the categories chosen for merchants of a completed review, applies them to every row of each merchant, and emits `review.totals`. |
-| `report` | Builds the prompt from the computed totals, emits `review.writing`, asks the model, and emits `review.report` with its text. |
+| `report` | Builds the prompt from the computed totals and emits `review.report` with the text the person's report memory holds for that exact prompt; for a prompt never narrated for them it emits `review.writing`, asks the model and remembers the text. |
 
 **Reducers.** Parallel fetches write to the same state keys, so each such key has a merge rule:
 
@@ -166,8 +166,9 @@ conditions means an owner lease per running review, or runs moved to a worker ti
 checkpointer's table setup moved into the migration run.
 
 **Starts are rationed.** Every start fetches the month from the card agents, which classify its
-merchants with a model, and has a model write the report, so repeating a start costs model calls on
-both sides. A month therefore holds one standing review until the person clears it (`DELETE
+merchants with a model, and has a model write the report unless the person's report memory holds
+the text for the very same totals, so repeating a start costs model calls on both sides. A month
+therefore holds one standing review until the person clears it (`DELETE
 /api/reviews/{id}`); a start for a month that has one is refused with 409 naming it. The page asks
 first (`GET /api/months/{month}`), so it never offers that start: a month with its review shows the
 review and offers Clear review, a month without one offers Start review with the starts left. A
@@ -308,14 +309,24 @@ as a stream error.
 One Postgres database (`postgres:16` in compose, published on `127.0.0.1:5434`):
 
 - `reviews` (with the owner's `user_id`; one standing review per user and month),
-  `review_events` (primary key review id plus `seq`) and `merchant_memory` (user id and merchant
-  key to category), created by the Alembic migrations in `backend/alembic/versions/`, which also
-  move remembered categories onto the current category list.
+  `review_events` (primary key review id plus `seq`), `merchant_memory` (user id and merchant
+  key to category) and `report_memory` (user id and the SHA-256 digest of a report prompt to
+  the prompt, its month and the text the model wrote for it), created by the Alembic migrations
+  in `backend/alembic/versions/`,
+  which also move remembered categories onto the current category list.
 - LangGraph's checkpoint tables, created by `AsyncPostgresSaver.setup()` when the app starts; the
   thread id is the review id, whose owner the `reviews` row names.
 
 A person's merchant memory is shared by all their reviews and kept until changed, so a second
-review of the same month asks nothing; the end-to-end test therefore runs on a fresh database. The
+review of the same month asks nothing; the end-to-end test therefore runs on a fresh database. A
+person's report memory holds each report prompt of their recent reviews with the text it got. The
+prompt is everything the model sees, so a review whose totals, skipped agents and transaction
+count match a remembered one, a repeated start of the month or a category change undone, shows
+that text without a model call, and a prompt not held, a changed number or changed wording in
+code, has the model write a text that is remembered beside the others. A row is written once and
+never changed, since it can describe no other facts than its prompt holds. Writing a person's
+report forgets their rows older than `REPORT_MEMORY_RETENTION_DAYS`, so reading costs no write
+and the rows a person keeps are those of the window. The
 checkpointer and the repositories each draw connections from a pool that tests a connection
 before handing it out, so a database restart fails only the requests in flight at that moment;
 the home finance agent itself needs no restart.
@@ -345,6 +356,7 @@ refuses to start when a required key is missing.
 | `BUDGET_CONFIG` | no | Default `config/budget.yaml`. |
 | `HFM_FRONTEND_DIST` | no | Built page folder served at `/`; unset serves the API only. |
 | `REDIS_URL` | no | A Redis that carries live events between replicas; compose sets it to its `redis` service. Unset, live events stay in the one process. |
+| `REPORT_MEMORY_RETENTION_DAYS` | no | How long a written report answers for the same totals instead of the model; default 90. |
 
 Keys read outside the settings class: `LANGGRAPH_STRICT_MSGPACK` (LangGraph itself),
 `HFM_LOG_LEVEL` and `HFM_LOG_LEVELS` (`platform/logging.py`). `backend/.env.example` explains

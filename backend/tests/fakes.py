@@ -2,7 +2,8 @@
 
 Core building blocks:
 - ScriptedCardAgentClient: replays scripted event sequences per agent and records its calls
-- InMemoryReviewRepository, InMemoryReviewEventStore, InMemoryMerchantMemory: dict-backed storage
+- InMemoryReviewRepository, InMemoryReviewEventStore, InMemoryMerchantMemory,
+  InMemoryReportMemory: dict-backed storage
 - FakeTokenVerifier: maps known tokens to people, refuses the rest
 - FakeReportWriter: returns fixed text and records prompts
 - InMemoryEventBus: re-exported from the production adapter
@@ -132,6 +133,22 @@ class InMemoryMerchantMemory:
         self._categories[(user_id, key)] = category
 
 
+class InMemoryReportMemory:
+    """Keeps every text for good; retention is the Postgres memory's concern."""
+
+    def __init__(self) -> None:
+        # Key: (user id, prompt). Value: the report text the prompt got.
+        self._texts: dict[tuple[str, str], str] = {}
+
+    async def lookup(self, user_id: str, prompt: str) -> str | None:
+        return self._texts.get((user_id, prompt))
+
+    async def remember(self, user_id: str, month: str, prompt: str, text: str) -> None:
+        if (user_id, prompt) in self._texts:
+            raise ValueError(f"user {user_id} already has a text for the prompt")
+        self._texts[(user_id, prompt)] = text
+
+
 class FakeTokenVerifier:
     """Accepts the tokens it was given, each naming a person; any other token is refused."""
 
@@ -159,6 +176,7 @@ __all__ = [
     "FakeTokenVerifier",
     "InMemoryEventBus",
     "InMemoryMerchantMemory",
+    "InMemoryReportMemory",
     "InMemoryReviewEventStore",
     "InMemoryReviewRepository",
     "ScriptedCardAgentClient",

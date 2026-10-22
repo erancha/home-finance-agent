@@ -5,6 +5,7 @@ Core building blocks:
   at most one review that is not cleared
 - ReviewEventStore: append-only per-review event log with sequence numbers
 - MerchantMemory: merchant key to category lookups learned from each person's own choices
+- ReportMemory: the report text each of a person's recent review prompts got
 
 Every row belongs to one user, named by their Google account id.
 """
@@ -70,4 +71,18 @@ class MerchantMemory(Protocol):
 
     async def remember(self, user_id: str, key: str, category: str) -> None:
         """Store the user's category for the key, replacing any earlier one."""
+        ...
+
+
+@runtime_checkable
+class ReportMemory(Protocol):
+    async def lookup(self, user_id: str, prompt: str) -> str | None:
+        """Return the text the user got for exactly this prompt; None when the memory holds none,
+        including one written longer ago than the implementation's retention."""
+        ...
+
+    async def remember(self, user_id: str, month: str, prompt: str, text: str) -> None:
+        """Store the text the prompt got for the user's review of the month, a prompt the memory
+        does not hold; raises when it does. An implementation may forget the user's texts past
+        its retention here, so reading costs nothing."""
         ...

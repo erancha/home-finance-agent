@@ -49,6 +49,7 @@ from tests.fakes import (
     FakeReportWriter,
     InMemoryEventBus,
     InMemoryMerchantMemory,
+    InMemoryReportMemory,
     InMemoryReviewEventStore,
     ScriptedCardAgentClient,
 )
@@ -62,6 +63,7 @@ TASK = TaskRef("amex", "t1", "c1")
 VISA_TASK = TaskRef("visa", "t7", "c7")
 BUDGET = Budget("ILS", {"groceries": Decimal(500), "dining": Decimal(100)})
 CONFIG: Any = {"configurable": {"thread_id": "r1"}}
+SECOND_CONFIG: Any = {"configurable": {"thread_id": "r2"}}
 USER = "1001"
 USER_TOKEN = "eyJ-user-token-never-checkpointed"
 
@@ -91,8 +93,8 @@ class Harness:
     store: InMemoryReviewEventStore
     writer: FakeReportWriter
 
-    async def event_types(self) -> list[str]:
-        return [event.type for _, event in await self.store.list("r1")]
+    async def event_types(self, review_id: str = "r1") -> list[str]:
+        return [event.type for _, event in await self.store.list(review_id)]
 
     async def event_data(self, event_type: str) -> list[dict[str, Any]]:
         return [e.data for _, e in await self.store.list("r1") if e.type == event_type]
@@ -108,17 +110,19 @@ def deps(
     memory, store = InMemoryMerchantMemory(), InMemoryReviewEventStore()
     writer = FakeReportWriter()
     sink = ReviewEventSink(store, InMemoryEventBus())
-    graph_deps = GraphDeps(client, memory, BUDGET, writer, sink, {a.name: a for a in agents})
+    graph_deps = GraphDeps(
+        client, memory, BUDGET, writer, InMemoryReportMemory(), sink, {a.name: a for a in agents}
+    )
     saver = saver or InMemorySaver(serde=checkpoint_serde())
     return Harness(build_review_graph(graph_deps, saver), saver, client, memory, store, writer)
 
 
-async def run(h: Harness, payload: Any = None) -> dict[str, Any]:
+async def run(h: Harness, payload: Any = None, config: Any = CONFIG) -> dict[str, Any]:
     """Invokes the graph the way the runner does: with the person's token in the run's context."""
     start = {"month": MONTH, "user_id": USER}
     with with_user_token(USER_TOKEN):
         result: dict[str, Any] = await h.graph.ainvoke(
-            start if payload is None else payload, CONFIG
+            start if payload is None else payload, config
         )
     return result
 
@@ -154,6 +158,18 @@ async def test_happy_path_streams_totals_and_report() -> None:
         AGENT_DISCOVERED, AGENT_STATUS, TRANSACTIONS_BATCH, REVIEW_TOTALS, REVIEW_WRITING,
         REVIEW_REPORT,
     ]
+
+
+async def test_a_review_with_the_same_totals_reuses_the_report_without_asking_the_model() -> None:
+    script: list[AgentEvent] = [batch(GROCERIES, DINING), COMPLETED]
+    h = deps(script, script)
+    first = await run(h)
+
+    second = await run(h, config=SECOND_CONFIG)
+
+    assert second["report"] == first["report"]
+    assert len(h.writer.prompts) == 1
+    assert (await h.event_types("r2"))[-2:] == [REVIEW_TOTALS, REVIEW_REPORT]
 
 
 async def test_totals_carry_the_standing_order_spend() -> None:

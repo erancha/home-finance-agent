@@ -25,6 +25,7 @@ from contextlib import (
     contextmanager,
     nullcontext,
 )
+from datetime import timedelta
 from pathlib import Path
 from types import FrameType
 from typing import Any
@@ -42,6 +43,7 @@ from hfm.adapters.google_tokens import GoogleTokenVerifier, JwksKeys, StaticKey
 from hfm.adapters.memory_bus import InMemoryEventBus
 from hfm.adapters.postgres.repositories import (
     PostgresMerchantMemory,
+    PostgresReportMemory,
     PostgresReviewEventStore,
     PostgresReviewRepository,
 )
@@ -110,7 +112,15 @@ async def production_deps(settings: Settings) -> AsyncIterator[AppDeps]:
         bus = await stack.enter_async_context(open_event_bus(settings.redis_url))
         sink = ReviewEventSink(store, bus)
         graph_deps = GraphDeps(
-            card_client, PostgresMerchantMemory(sessions), budget, writer, sink, card_agents
+            card_client,
+            PostgresMerchantMemory(sessions),
+            budget,
+            writer,
+            PostgresReportMemory(
+                sessions, timedelta(days=settings.report_memory_retention_days)
+            ),
+            sink,
+            card_agents,
         )
         yield AppDeps(
             reviews=PostgresReviewRepository(sessions),

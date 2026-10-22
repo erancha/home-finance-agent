@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     redis_url: SecretStr | None = None
     """A Redis that carries live review events between replicas of this agent; unset, events
     stay inside the one process, which then serves every request."""
+    report_memory_retention_days: int = 90
+    """How long a remembered report answers for its totals; older ones are forgotten when the
+    person's next report is written, and the model is asked again for those totals."""
 
     @model_validator(mode="after")
     def _require_provider_key(self) -> Self:

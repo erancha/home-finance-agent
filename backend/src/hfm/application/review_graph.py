@@ -4,7 +4,8 @@ Core building blocks:
 - ReviewState: the checkpointed state, with reducers that merge results of parallel fetches;
   it names agents and never holds their configs, and the person's ID token reaches the fetch
   through user_token, so no secret of either kind reaches a checkpoint
-- Nodes: discover, fetch_agent (one per agent), reconcile, pose, ask, recategorize, report
+- Nodes: discover, fetch_agent (one per agent), reconcile, pose, ask, recategorize, report;
+  the report asks the model only for a prompt the person's report memory does not hold
 - Routing: an initial fan-out to every agent, and after answers a fan-out only to agents told to
   continue, each resuming its own task; a completed review run again with categories goes
   straight to recategorize and report
@@ -79,6 +80,7 @@ from hfm.ports import (
     CardAgentClient,
     InputRequired,
     MerchantMemory,
+    ReportMemory,
     ReportWriter,
     StatusEvent,
     TaskCompleted,
@@ -116,7 +118,7 @@ class ReviewState(TypedDict, total=False):
     report: str | None
     recategorize: dict[str, str]
     """Merchant key to category chosen after the review completed; set as the input of a run that
-    reapplies them and rewrites the report, and cleared by it."""
+    reapplies them and reports again, and cleared by it."""
 
 
 class FetchRequest(TypedDict):
@@ -131,6 +133,7 @@ class GraphDeps:
     memory: MerchantMemory
     budget: Budget
     report_writer: ReportWriter
+    reports: ReportMemory
     sink: ReviewEventSink
     agents: Mapping[str, AgentConfig]
     """Agent name to its config; a review's agent names resolve here, never in state."""
@@ -315,8 +318,11 @@ def build_review_graph(
             len(state["transactions"]),
             list(state["skipped"]),
         )
-        await emit(REVIEW_WRITING, {})
-        text = await deps.report_writer.write(prompt)
+        text = await deps.reports.lookup(state["user_id"], prompt)
+        if text is None:
+            await emit(REVIEW_WRITING, {})
+            text = await deps.report_writer.write(prompt)
+            await deps.reports.remember(state["user_id"], state["month"], prompt, text)
         await emit(REVIEW_REPORT, {"text": text})
         return {"report": text}
 

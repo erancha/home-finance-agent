@@ -1,6 +1,8 @@
-"""Tables of the review store: reviews, their per-review event log and the merchant memory.
+"""Tables of the review store: reviews, their per-review event log, the merchant memory and the
+report memory.
 
-Reviews and remembered merchants carry the Google account id of the person they belong to."""
+Reviews, remembered merchants and remembered reports carry the Google account id of the person
+they belong to."""
 
 from __future__ import annotations
 
@@ -57,3 +59,20 @@ class MerchantMemoryRow(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class ReportMemoryRow(Base):
+    __tablename__ = "report_memory"
+
+    user_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    prompt_digest: Mapped[str] = mapped_column(Text, primary_key=True)
+    """SHA-256 hex digest of the prompt, whose table of totals is too long to index as is."""
+    month: Mapped[str] = mapped_column(Text)
+    """The reviewed month, so a row reads without parsing its prompt."""
+    prompt: Mapped[str] = mapped_column(Text)
+    """The prompt in full, so a row shows which totals its text narrates."""
+    text: Mapped[str] = mapped_column(Text)
+    written_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    """Set once; a row is never rewritten, and retention counts from here."""

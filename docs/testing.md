@@ -64,7 +64,9 @@ unless the environment already sets it, before anything imports LangGraph.
 `adapters/postgres/test_repositories.py` covers review rows, event sequences that never collide
 under concurrent appends, reviews listed by status, a person's month holding one standing review
 until it is cleared while another person reviews the same month independently, a person's reviews
-created since a time listed cleared ones included, and merchant memory upserts per person.
+created since a time listed cleared ones included, merchant memory upserts per person, report
+memory answering a person's own text for each exact prompt, and a written report forgetting the
+person's rows past the retention while another person's stay.
 `platform/test_checkpointer.py` round-trips a checkpoint through Postgres with `Decimal` and domain
 values intact, shows the default serializer losing a domain value that the allow-list keeps, and
 reads a checkpoint back after every server connection was terminated, as a database restart does;
@@ -72,9 +74,10 @@ reads a checkpoint back after every server connection was terminated, as a datab
 through `tests/platform/database_outage.py`.
 
 **Graph.** `application/test_review_graph.py` runs the real graph on fakes and an in-memory
-checkpointer with the review's serializer. It covers the happy path, the totals carrying the
-standing-order spend, an unknown merchant pausing and being remembered, memory preventing the second
-question, a remembered category outranking the agent's, "continue" refetching the same task, a
+checkpointer with the review's serializer. It covers the happy path, a second review with the same
+totals reusing the report without asking the model, the totals carrying the standing-order spend,
+an unknown merchant pausing and being remembered, memory preventing the second question, a
+remembered category outranking the agent's, "continue" refetching the same task, a
 statement page linked on the agent's browser address, "skip" reporting partial data, two agents
 where only the waiting one is refetched, rows resent on continue counted once, a review with no
 agents, an unusable agent failing the review (`test_graph_fails_review_when_agent_unusable`), one of
