@@ -5,6 +5,12 @@ import { formatTimestamp } from '../../format.ts'
 
 const INPUT_REQUIRED = 'TASK_STATE_INPUT_REQUIRED'
 
+const STATUS_TEXT = {
+  running: 'Resumed',
+  waiting: 'Waiting for answers',
+  completed: 'Review completed',
+} as const
+
 /** An agent's request for input is shown here alone; the question below offers only the action. */
 function statusText(state: string, text: string): ReactNode {
   return state === INPUT_REQUIRED ? <span className="error">{text}</span> : text
@@ -34,6 +40,8 @@ function describe(event: ReviewEvent): ReactNode {
       return 'Report ready'
     case 'review.failed':
       return 'Review failed'
+    case 'review.status':
+      return STATUS_TEXT[event.data.status]
   }
 }
 

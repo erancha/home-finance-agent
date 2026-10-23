@@ -75,7 +75,8 @@ class InMemoryReviewRepository:
     async def get(self, review_id: str) -> Review:
         return self._reviews[review_id]
 
-    async def set_status(self, review_id: str, status: ReviewStatus) -> None:
+    def write_status(self, review_id: str, status: ReviewStatus) -> None:
+        """Applies a status an event carries, for InMemoryReviewEventStore; not part of the port."""
         self._reviews[review_id] = replace(self._reviews[review_id], status=status)
 
     async def list_by_status(self, status: ReviewStatus) -> list[Review]:
@@ -115,10 +116,18 @@ class InMemoryReviewRepository:
 
 
 class InMemoryReviewEventStore:
-    def __init__(self) -> None:
+    """Writes the status an event carries into the given review repository, as the Postgres store
+    does in the same transaction as the event."""
+
+    def __init__(self, reviews: InMemoryReviewRepository) -> None:
+        self._reviews = reviews
         self._events: dict[str, list[ReviewEvent]] = defaultdict(list)
 
-    async def append(self, review_id: str, event: ReviewEvent) -> int:
+    async def append(
+        self, review_id: str, event: ReviewEvent, status: ReviewStatus | None = None
+    ) -> int:
+        if status is not None:
+            self._reviews.write_status(review_id, status)
         events = self._events[review_id]
         events.append(event)
         return len(events)

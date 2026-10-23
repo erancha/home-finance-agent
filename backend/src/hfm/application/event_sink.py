@@ -1,11 +1,12 @@
-"""Stamps each review event with its time, records it in the durable log, then fans it out to
-live subscribers."""
+"""Stamps each review event with its time, records it in the durable log along with any status
+change it carries, then fans it out to live subscribers."""
 from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
 
-from hfm.domain.events import ReviewEvent
+from hfm.domain.events import REVIEW_STATUS, ReviewEvent
+from hfm.domain.models import ReviewStatus
 from hfm.ports import EventBus, ReviewEventStore
 
 
@@ -25,15 +26,24 @@ class ReviewEventSink:
         self._bus = bus
         self._now = now
 
-    async def emit(self, review_id: str, event: ReviewEvent) -> None:
+    async def emit(
+        self, review_id: str, event: ReviewEvent, status: ReviewStatus | None = None
+    ) -> None:
         """Persist before publishing so a subscriber never sees an event the log does not hold.
+        When a status is given, the review's status changes in the same write as the event.
 
         The time travels in the data as at, so a replayed event shows when it happened.
         """
         stamped = ReviewEvent(
             event.type, {**event.data, "at": self._now().isoformat(timespec="seconds")}
         )
-        seq = await self._store.append(review_id, stamped)
+        seq = await self._store.append(review_id, stamped, status)
         await self._bus.publish(
             review_channel(review_id), {"type": stamped.type, "seq": seq, "data": stamped.data}
         )
+
+    async def set_status(self, review_id: str, status: ReviewStatus) -> None:
+        """Change the review's status and announce it in a review.status event, written together.
+        The page acts on a status only when that event arrives, and by then every replica's API
+        already returns the new status."""
+        await self.emit(review_id, ReviewEvent(REVIEW_STATUS, {"status": status.value}), status)

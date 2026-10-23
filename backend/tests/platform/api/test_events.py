@@ -21,6 +21,7 @@ from hfm.domain.events import (
     AGENT_DISCOVERED,
     REVIEW_QUESTION,
     REVIEW_REPORT,
+    REVIEW_STATUS,
     REVIEW_TOTALS,
     REVIEW_WRITING,
     ReviewEvent,
@@ -28,7 +29,7 @@ from hfm.domain.events import (
 from hfm.platform.api.auth import COOKIE
 from hfm.platform.api.events import review_frames, sse_frame
 from hfm.platform.app import SHUTDOWN_SIGNALS, create_app, signal_shutdown
-from tests.fakes import InMemoryEventBus, InMemoryReviewEventStore
+from tests.fakes import InMemoryEventBus, InMemoryReviewEventStore, InMemoryReviewRepository
 from tests.platform.support import (
     CATEGORY_QUESTION,
     DANA_TOKEN,
@@ -114,7 +115,7 @@ class RacingStore(InMemoryReviewEventStore):
     """Emits one event just before the replay snapshot is taken and one just after it."""
 
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(InMemoryReviewRepository())
         self.sink = ReviewEventSink(self, bus := InMemoryEventBus(), lambda: EVENT_TIME)
         self.bus = bus
 
@@ -144,7 +145,7 @@ async def test_events_racing_the_replay_arrive_once_each() -> None:
 
 
 async def test_stream_ends_soon_after_shutdown_is_signalled() -> None:
-    store = InMemoryReviewEventStore()
+    store = InMemoryReviewEventStore(InMemoryReviewRepository())
     await store.append("r1", ReviewEvent("persisted", {}))
     shutdown = asyncio.Event()
     stream = review_frames(
@@ -257,7 +258,13 @@ def test_events_replays_persisted_events_before_tailing() -> None:
         assert replayed[0]["type"] == AGENT_DISCOVERED
         seqs = [frame["seq"] for frame in replayed + tailed]
         assert seqs == list(range(1, len(seqs) + 1))
-        assert [frame["type"] for frame in tailed] == [REVIEW_TOTALS, REVIEW_WRITING, REVIEW_REPORT]
+        assert [(frame["type"], frame["data"].get("status")) for frame in tailed] == [
+            (REVIEW_STATUS, "waiting"),
+            (REVIEW_STATUS, "running"),
+            (REVIEW_TOTALS, None),
+            (REVIEW_WRITING, None),
+            (REVIEW_REPORT, None),
+        ]
 
         last_question = replayed[-1]["seq"]
         with client.stream(
@@ -266,7 +273,7 @@ def test_events_replays_persisted_events_before_tailing() -> None:
             headers={"Last-Event-ID": str(last_question)},
         ) as response:
             resumed = until(frames(response.iter_lines()), REVIEW_REPORT)
-        assert [frame["seq"] for frame in resumed] == [last_question + n for n in (1, 2, 3)]
+        assert [frame["seq"] for frame in resumed] == [last_question + n for n in range(1, 6)]
 
         anonymous = httpx.get(f"{client.base_url}/api/reviews/{review_id}/events")
         assert anonymous.status_code == 401

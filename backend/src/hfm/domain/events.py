@@ -16,6 +16,7 @@ REVIEW_QUESTION = "review.question"
 REVIEW_TOTALS = "review.totals"
 REVIEW_WRITING = "review.writing"
 REVIEW_REPORT = "review.report"
+REVIEW_STATUS = "review.status"
 REVIEW_FAILED = "review.failed"
 
 

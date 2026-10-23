@@ -21,8 +21,12 @@ set around the invocation and never written anywhere.
 
 A review's status follows its latest invocation: RUNNING while one is in flight, WAITING when it
 stopped at the question interrupt, COMPLETED when the graph reached its end, FAILED when it
-raised. Recategorizing a COMPLETED review runs it again, back to COMPLETED. A review has at most
-one invocation in flight. The review id is the checkpoint thread id. A review still RUNNING when a
+raised. Every status change after the start is written in the same transaction as an event:
+review.failed for FAILED, review.status for the others. WAITING and COMPLETED are written only
+after the invocation's last checkpoint, so when the page acts on such an event, every replica's
+API already reports the same status.
+Recategorizing a COMPLETED review runs it again, back to COMPLETED. A review has at most one
+invocation in flight. The review id is the checkpoint thread id. A review still RUNNING when a
 new process starts lost its invocation and is failed. A RUNNING review cannot be cleared.
 """
 from __future__ import annotations
@@ -190,8 +194,9 @@ class ReviewRunner:
         names no posed question or holds an illegal value, or a remote question is unanswered.
 
         The question event goes out before the run reaches its pause, so an answer that arrives
-        while the run is in flight waits for it to settle instead of being refused. The token is
-        the one a continued fetch forwards, fresh from the person's current sign-in.
+        on this process while the run is in flight waits for it to settle instead of being
+        refused. The token is the one a continued fetch forwards, fresh from the person's current
+        sign-in.
         """
         running = self._runs.get(review_id)
         if running is not None:
@@ -208,7 +213,7 @@ class ReviewRunner:
                 raise ReviewConflictError(review_id, review.status, "not waiting for answers")
             snapshot = await self._graph.aget_state(_config(review_id))
             validate_answers(snapshot.values["questions"], answers)
-            await self._reviews.set_status(review_id, ReviewStatus.RUNNING)
+            await self._sink.set_status(review_id, ReviewStatus.RUNNING)
         self._schedule(review_id, Command(resume={"answers": dict(answers)}), token)
 
     async def recategorize(
@@ -225,7 +230,7 @@ class ReviewRunner:
                 raise ReviewConflictError(review_id, review.status, "not completed")
             snapshot = await self._graph.aget_state(_config(review_id))
             chosen = validate_categories(snapshot.values["transactions"], categories)
-            await self._reviews.set_status(review_id, ReviewStatus.RUNNING)
+            await self._sink.set_status(review_id, ReviewStatus.RUNNING)
         # Recategorizing reaches no card agent, so the run needs no token.
         self._schedule(review_id, {"recategorize": chosen}, None)
 
@@ -243,9 +248,10 @@ class ReviewRunner:
         snapshot = await self._graph.aget_state(_config(review_id))
         # Nodes fill the state as the review progresses, so early on these keys are absent.
         values = snapshot.values
-        # The interrupt is checkpointed before the run records WAITING; questions are offered
-        # only once the run has settled, so they are never shown while answers would be refused.
-        paused = bool(snapshot.interrupts) and review_id not in self._runs
+        # The interrupt is checkpointed before WAITING is recorded, so the questions are offered
+        # only once the status is WAITING, not on the interrupt alone; until then answers would be
+        # refused.
+        paused = review.status == ReviewStatus.WAITING
         questions = snapshot.interrupts[0].value["questions"] if paused else []
         return ReviewView(
             id=review.id,
@@ -335,13 +341,14 @@ class ReviewRunner:
             log.error("review failed", review_id=review_id, exc_info=error)
             await self._fail(review_id, failure_message(error))
             return
-        await self._reviews.set_status(
+        await self._sink.set_status(
             review_id, ReviewStatus.WAITING if result.interrupts else ReviewStatus.COMPLETED
         )
 
     async def _fail(self, review_id: str, message: str) -> None:
-        await self._reviews.set_status(review_id, ReviewStatus.FAILED)
-        await self._sink.emit(review_id, ReviewEvent(REVIEW_FAILED, {"message": message}))
+        await self._sink.emit(
+            review_id, ReviewEvent(REVIEW_FAILED, {"message": message}), ReviewStatus.FAILED
+        )
 
     def _forget(self, review_id: str, task: asyncio.Task[None]) -> None:
         """A run that raised while recording its own outcome is logged, never dropped silently."""

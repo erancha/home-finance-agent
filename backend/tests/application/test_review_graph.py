@@ -51,6 +51,7 @@ from tests.fakes import (
     InMemoryMerchantMemory,
     InMemoryReportMemory,
     InMemoryReviewEventStore,
+    InMemoryReviewRepository,
     ScriptedCardAgentClient,
 )
 
@@ -107,7 +108,7 @@ def deps(
     saver: InMemorySaver | None = None,
 ) -> Harness:
     client = client or ScriptedCardAgentClient({"amex": AMEX_INFO}, {"amex": list(scripts)})
-    memory, store = InMemoryMerchantMemory(), InMemoryReviewEventStore()
+    memory, store = InMemoryMerchantMemory(), InMemoryReviewEventStore(InMemoryReviewRepository())
     writer = FakeReportWriter()
     sink = ReviewEventSink(store, InMemoryEventBus())
     graph_deps = GraphDeps(

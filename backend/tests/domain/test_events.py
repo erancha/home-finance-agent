@@ -17,6 +17,7 @@ def test_event_types_are_the_published_names() -> None:
     assert events.REVIEW_WRITING == "review.writing"
     assert events.REVIEW_REPORT == "review.report"
     assert events.REVIEW_FAILED == "review.failed"
+    assert events.REVIEW_STATUS == "review.status"
 
 
 def test_money_text_always_has_two_decimal_places() -> None:

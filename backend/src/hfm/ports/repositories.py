@@ -1,9 +1,10 @@
 """Persistence ports for reviews, their event logs and the merchant-category memory.
 
 Core building blocks:
-- ReviewRepository: stores reviews, their status and when they were cleared; a person's month has
-  at most one review that is not cleared
-- ReviewEventStore: append-only per-review event log with sequence numbers
+- ReviewRepository: stores reviews and when they were cleared; a person's month has at most one
+  review that is not cleared
+- ReviewEventStore: append-only per-review event log with sequence numbers; after a review is
+  added, its status changes only through this store, so every change is also an event in its log
 - MerchantMemory: merchant key to category lookups learned from each person's own choices
 - ReportMemory: the report text each of a person's recent review prompts got
 
@@ -31,10 +32,6 @@ class ReviewRepository(Protocol):
         """Return the review; raises KeyError when the id is unknown."""
         ...
 
-    async def set_status(self, review_id: str, status: ReviewStatus) -> None:
-        """Replace the review's status; raises KeyError when the id is unknown."""
-        ...
-
     async def list_by_status(self, status: ReviewStatus) -> list[Review]:
         """Return every review with the status, oldest first."""
         ...
@@ -59,8 +56,15 @@ class ReviewRepository(Protocol):
 
 @runtime_checkable
 class ReviewEventStore(Protocol):
-    async def append(self, review_id: str, event: ReviewEvent) -> int:
-        """Append the event and return its sequence number, 1-based per review."""
+    async def append(
+        self, review_id: str, event: ReviewEvent, status: ReviewStatus | None = None
+    ) -> int:
+        """Append the event and return its sequence number, 1-based per review.
+
+        When a status is given, the review's status is set to it in the same transaction, so a
+        reader of the log never learns of a status the review does not show yet. Raises KeyError
+        for an unknown id.
+        """
         ...
 
     async def list(self, review_id: str, after_seq: int = 0) -> list[tuple[int, ReviewEvent]]:

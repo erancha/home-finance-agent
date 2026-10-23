@@ -65,9 +65,10 @@ unless the environment already sets it, before anything imports LangGraph.
 
 **Postgres and Redis.** `tests/conftest.py` starts `postgres:16` (and, for the Redis bus tests,
 `redis:7-alpine`) with Testcontainers once per test module and applies the Alembic migrations.
-`adapters/postgres/test_repositories.py` covers review rows, event sequences that never collide
-under concurrent appends, reviews listed by status, a person's month holding one standing review
-until it is cleared while another person reviews the same month independently, a person's reviews
+`adapters/postgres/test_repositories.py` covers review rows, an event that carries a status
+changing the review in the same write, event sequences that never collide under concurrent appends,
+reviews listed by status, a person's month holding one standing review until it is cleared while
+another person reviews the same month independently, a person's reviews
 created since a time listed cleared ones included, the latest completed review of an earlier month
 skipping later, unfinished, cleared and other people's reviews, merchant memory upserts per person,
 report memory answering a person's own text for each exact prompt, and a written report forgetting
@@ -103,10 +104,11 @@ makes LangGraph log a checkpoint warning, so a type missing from the allow-list 
 
 **Runner and API.** `platform/test_review_runner.py` drives `ReviewRunner`: waiting on the posed
 question, a missing remote answer rejected with the graph still resumable, full answers completing
-the review, recategorizing a completed review rerunning it to a second report while a review not
-completed or an unknown merchant is refused, answers sent right after the question waiting for the
-run to settle, a run that does not settle refused, domain failures and an agent's failed task shown
-verbatim, infrastructure failures hidden and logged, `aclose` cancelling running reviews, and
+the review, every status change after the start logged as a `review.status` event that follows the
+run's own events, recategorizing a completed review rerunning it to a second report while a review
+not completed or an unknown merchant is refused, answers sent right after the question waiting for
+the run to settle, a run that does not settle refused, domain failures and an agent's failed task
+shown verbatim, infrastructure failures hidden and logged, `aclose` cancelling running reviews, and
 `fail_interrupted` failing a review left running while a waiting one stays waiting. It also covers
 the rations: a month with a standing review refused a second start naming it, a cleared review
 hidden and its month started anew, a running review refused clearing, starts past the daily limit
@@ -115,8 +117,8 @@ ignored; and the month view naming the standing review, the starts left and when
 allowed. Per person: another person's review is not found and their month is free, the daily limit
 counts each person's own starts, and each fetch forwards the token of the request that started it.
 Expected charges project the latest earlier review's standing orders onto a completed review's
-totals, are the actual totals when no earlier month was reviewed, and are refused for a review
-that is not completed.
+totals, are the actual totals when no earlier month was reviewed, and are refused for a review that
+is not completed.
 `platform/api/test_agents.py` checks that the connected card agents are listed by name in registry
 order, an empty registry lists none, and the route needs a session. `platform/api/test_auth.py`
 checks sign-in: the client id is public, the posted credential becomes an HttpOnly, SameSite=Strict
@@ -163,7 +165,7 @@ stands in for the browser's `EventSource`.
 | `features/review/MonthPicker.test.tsx` | The billing month defaults to the current month, also across a year boundary; the field is labelled and described as the month the card is charged; the connected card agents are named; without any, only that fact is shown, with no month to pick; a month without a review offers Start with the starts left, none before the agents or the month were read, and none once the starts are used, naming when the next is allowed; a month with its review offers Clear instead, held while the review runs; a picked month is reported. |
 | `features/review/QuestionCard.test.tsx` | Each merchant lists its rows with date, card, statement text, amount and details; one "continue" button posts the merchants answered plus "continue" to every card agent asking, and is disabled while an answer is in flight; "not sure" drops an answer, offering to keep the card agent's guess; a card agent's "skip" is its own button that posts at once with the categories chosen so far; a question with a link repeats no text, opens the agent's page from a button in a new tab and offers skip; a `sign-in-required` question shows Google's button, reports the renewed sign-in and offers no skip. |
 | `features/review/TotalsChart.test.tsx` | Each category with spend gets a slice, summarized in text for screen readers and shown with amount and share on hover; the legend runs largest first and marks an overrun, a missing limit and a category without a slice; a month with no spend draws no pie; skipped agents are listed; a slice or legend entry selects its category and the Totals heading selects all; the standing-order spend is shown and selects the standing orders. |
-| `features/review/ReviewPage.test.tsx` | Without a card agent the page says so and offers no start; a review runs from start to totals and report on its events alone, with its raw transactions folded until opened; the started review's month goes into the URL, and a page opened with a month shows that month's review with its waiting question and Clear instead of Start; picking a month without a review hides the review and offers Start; a month that cannot be read is reported; a question posed again before the answer's 204 stays shown; a failure shows once; a malformed frame and a refused answer are shown; choosing a category in the totals lists only its raw transactions and Totals lists all again; choosing the standing orders lists only them until the box is cleared; a completed review recategorizes a merchant from the raw transactions, which stay read-only until the rerun's report arrives; a refused start is shown; Clear review stays disabled while the review runs, then clears it and offers Start again; "Include expected charges" fetches once, adds the expected rows (first, unfolded, marked, not recategorizable) to the raw transactions, the totals and the standing-order spend, dims the report, and toggles back without fetching again, while new totals make it fetch again; a month with no earlier completed review says so; a review that skipped a card agent starts with the box ticked, and unticking it removes the expected rows. |
+| `features/review/ReviewPage.test.tsx` | Without a card agent the page says so and offers no start; a review runs from start to totals and report on its events alone, offering the question only once the `waiting` status event arrives and folding the progress only once the `completed` one arrives, with its raw transactions folded until opened; the started review's month goes into the URL, and a page opened with a month shows that month's review with its waiting question and Clear instead of Start; picking a month without a review hides the review and offers Start; a month that cannot be read is reported; a question posed again before the answer's 204 stays shown; a failure shows once; a malformed frame and a refused answer are shown; choosing a category in the totals lists only its raw transactions and Totals lists all again; choosing the standing orders lists only them until the box is cleared; a completed review recategorizes a merchant from the raw transactions, which stay read-only until the rerun's `completed` status event arrives; a refused start is shown; Clear review stays disabled while the review runs, then clears it and offers Start again; "Include expected charges" fetches once, adds the expected rows (first, unfolded, marked, not recategorizable) to the raw transactions, the totals and the standing-order spend, dims the report, and toggles back without fetching again, while new totals make it fetch again; a month with no earlier completed review says so; a review that skipped a card agent asks for the expected charges only once its `completed` status event arrives, not on its report, starts with the box ticked, and unticking it removes the expected rows. |
 
 `scripts/test.sh frontend` also runs `tsc -b`, `oxlint` and `vite build`.
 

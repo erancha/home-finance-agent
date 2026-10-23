@@ -145,7 +145,8 @@ def app_deps(
 ) -> AppDeps:
     """App wiring over the given card client, in-memory fakes for the other ports and a review
     graph on an in-memory checkpointer; sessions default to an unreachable database."""
-    store = InMemoryReviewEventStore()
+    reviews = InMemoryReviewRepository()
+    store = InMemoryReviewEventStore(reviews)
     bus = InMemoryEventBus()
     sink = ReviewEventSink(store, bus, lambda: EVENT_TIME)
     graph_deps = GraphDeps(
@@ -159,7 +160,7 @@ def app_deps(
     )
     graph = build_review_graph(graph_deps, InMemorySaver(serde=checkpoint_serde()))
     return AppDeps(
-        reviews=InMemoryReviewRepository(),
+        reviews=reviews,
         events=store,
         bus=bus,
         sink=sink,

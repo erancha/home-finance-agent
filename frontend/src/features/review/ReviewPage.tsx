@@ -13,7 +13,7 @@ import type {
   ExpectedData,
   MerchantCategories,
   MonthView,
-  Question,
+  ReviewStatus,
   SequencedEvent,
   TotalsData,
 } from '../../api/types.ts'
@@ -25,8 +25,6 @@ import { Report } from './Report.tsx'
 import { TotalsChart } from './TotalsChart.tsx'
 import { TransactionsSection } from './TransactionsSection.tsx'
 
-const RESOLVING_EVENTS = new Set(['review.totals', 'review.report', 'review.failed'])
-const RERUN_END_EVENTS = new Set(['review.report', 'review.failed'])
 const MONTH_PARAM = 'month'
 
 /** Which raw transactions are listed; picks counts the choices made in the totals. */
@@ -44,23 +42,31 @@ interface Fetched {
   data: ExpectedData
 }
 
-interface Pause {
-  seq: number
-  questions: Question[]
+/** The status an event sets: review.status names it and review.failed fails the review. */
+function statusOf(event: SequencedEvent): ReviewStatus | null {
+  if (event.type === 'review.status') return event.data.status
+  if (event.type === 'review.failed') return 'failed'
+  return null
 }
 
 /**
- * The pause the review waits on, read from the latest review.question event; the review's REST
- * view reports no questions while the run is still settling into its pause, so it cannot be the
- * source. A pause ends once its answers were accepted or a later totals, report or failure event
- * shows the review moved on.
+ * The review's status, taken from its log. The server writes each status together with its
+ * event, so every replica's API already reports any status read here. Until the log holds a status
+ * event, the status read with the month applies. Once answers or categories are accepted while the
+ * latest status event is the one numbered sentAt, the review counts as running until a later status
+ * event arrives.
  */
-function openPause(events: SequencedEvent[], answeredSeq: number | null): Pause | null {
-  const index = events.findLastIndex((e) => e.type === 'review.question')
-  const latest = events[index]
-  if (latest?.type !== 'review.question' || latest.seq === answeredSeq) return null
-  if (events.slice(index + 1).some((e) => RESOLVING_EVENTS.has(e.type))) return null
-  return { seq: latest.seq, questions: latest.data.questions }
+function currentStatus(
+  events: SequencedEvent[],
+  monthStatus: ReviewStatus,
+  sentAt: number | null,
+): { status: ReviewStatus; seq: number } {
+  const logged = events.flatMap((e) => {
+    const status = statusOf(e)
+    return status === null ? [] : [{ status, seq: e.seq }]
+  })
+  const latest = logged.at(-1) ?? { status: monthStatus, seq: 0 }
+  return sentAt !== null && latest.seq <= sentAt ? { status: 'running', seq: latest.seq } : latest
 }
 
 /** The review's totals as they read with the expected rows counted; every reader of the totals,
@@ -101,9 +107,8 @@ export function ReviewPage() {
   const [viewVersion, setViewVersion] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [answeredSeq, setAnsweredSeq] = useState<number | null>(null)
-  // The last event's seq when categories were sent; the rerun ends with a later report or failure.
-  const [recategorizedAt, setRecategorizedAt] = useState<number | null>(null)
+  // The seq of the latest status event at the moment answers or categories were accepted.
+  const [sentAt, setSentAt] = useState<number | null>(null)
   const [shown, setShown] = useState<Shown>(SHOW_ALL)
   // The person's own tick or untick; until they make one, a review that skipped a card agent shows
   // the expected charges, since the skipped card's recurring charges are otherwise missing.
@@ -117,27 +122,21 @@ export function ReviewPage() {
   const [stateOf, setStateOf] = useState<string | null>(null)
   if (stateOf !== reviewId) {
     setStateOf(reviewId)
-    setAnsweredSeq(null)
-    setRecategorizedAt(null)
+    setSentAt(null)
     setShown(SHOW_ALL)
     setExpectedChoice(null)
     setFetchedExpected(null)
   }
   const { events, streamError } = useReviewEvents(reviewId)
-  const pause = openPause(events, answeredSeq)
+  const current = review === null ? null : currentStatus(events, review.status, sentAt)
+  const status = current === null ? null : current.status
+  const question = events.findLast((e) => e.type === 'review.question')
+  const pause = status === 'waiting' && question?.type === 'review.question' ? question : null
   const totals = events.findLast((e) => e.type === 'review.totals')
   const report = events.findLast((e) => e.type === 'review.report')
   const failure = events.findLast((e) => e.type === 'review.failed')
-  const rerunSettled =
-    recategorizedAt === null ||
-    events.some((e) => e.seq > recategorizedAt && RERUN_END_EVENTS.has(e.type))
-  // The status was read with the month; the events tell when the review ended since.
-  const inProgress =
-    report === undefined &&
-    failure === undefined &&
-    review !== null &&
-    (review.status === 'running' || review.status === 'waiting')
-  const completed = report !== undefined && failure === undefined && pause === null && rerunSettled
+  const inProgress = status === 'running' || status === 'waiting'
+  const completed = status === 'completed'
   const totalsSeq = totals?.type === 'review.totals' ? totals.seq : null
   const withExpected =
     expectedChoice ?? (totals?.type === 'review.totals' && totals.data.skipped.length > 0)
@@ -149,7 +148,7 @@ export function ReviewPage() {
   const shownTotals =
     actualTotals !== null && expected !== null ? withExpectedRows(actualTotals, expected) : actualTotals
   // The server refuses to clear a running review; one that ended or waits for answers can go.
-  const clearable = completed || failure !== undefined || pause !== null
+  const clearable = status !== null && status !== 'running'
 
   useEffect(() => {
     let current = true
@@ -211,13 +210,13 @@ export function ReviewPage() {
     }
   }
 
-  async function submit(seq: number, answers: Answers) {
+  async function submit(statusSeq: number, answers: Answers) {
     if (reviewId === null) return
     setError(null)
     setBusy(true)
     try {
       await answerReview(reviewId, answers)
-      setAnsweredSeq(seq)
+      setSentAt(statusSeq)
     } catch (e) {
       setError(errorText(e))
     } finally {
@@ -226,13 +225,12 @@ export function ReviewPage() {
   }
 
   async function recategorize(categories: MerchantCategories): Promise<boolean> {
-    if (reviewId === null) return false
+    if (reviewId === null || current === null) return false
+    const statusSeq = current.seq
     setError(null)
-    const last = events.at(-1)
-    if (last === undefined) throw new Error('a completed review has events')
     try {
       await recategorizeReview(reviewId, categories)
-      setRecategorizedAt(last.seq)
+      setSentAt(statusSeq)
       return true
     } catch (e) {
       setError(errorText(e))
@@ -264,14 +262,14 @@ export function ReviewPage() {
         <p role="alert" className="failure">Review failed: {failure.data.message}</p>
       )}
       {reviewId !== null && (
-        <EventFeed events={events} working={inProgress && pause === null} inProgress={inProgress} />
+        <EventFeed events={events} working={status === 'running'} inProgress={inProgress} />
       )}
-      {pause !== null && (
+      {pause !== null && current !== null && (
         <QuestionCard
           key={pause.seq}
-          questions={pause.questions}
+          questions={pause.data.questions}
           submitting={busy}
-          onSubmit={(answers) => submit(pause.seq, answers)}
+          onSubmit={(answers) => submit(current.seq, answers)}
         />
       )}
       {completed && totalsSeq !== null && (

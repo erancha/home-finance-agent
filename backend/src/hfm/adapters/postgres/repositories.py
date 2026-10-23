@@ -3,7 +3,8 @@
 Core building blocks:
 - PostgresReviewRepository: review rows; a unique index keeps one review per user and month
   uncleared
-- PostgresReviewEventStore: per-review event log, sequence assigned under a review row lock
+- PostgresReviewEventStore: per-review event log; each append locks the review's row, so sequence
+  numbers never collide and a status the event carries is written in the same transaction
 - PostgresMerchantMemory: per-user merchant key to category upserts
 - PostgresReportMemory: per-user prompt digest to report text, written once; a write forgets
   the user's rows older than the retention it was built with
@@ -65,14 +66,6 @@ class PostgresReviewRepository:
         if row is None:
             raise KeyError(review_id)
         return _review(row)
-
-    async def set_status(self, review_id: str, status: ReviewStatus) -> None:
-        async with self._sessions.begin() as session:
-            result = await session.execute(
-                update(ReviewRow).where(ReviewRow.id == review_id).values(status=status.value)
-            )
-        if result.rowcount == 0:  # type: ignore[attr-defined]
-            raise KeyError(review_id)
 
     async def list_by_status(self, status: ReviewStatus) -> list[Review]:
         async with self._sessions() as session:
@@ -143,13 +136,19 @@ class PostgresReviewEventStore:
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         self._sessions = sessions
 
-    async def append(self, review_id: str, event: ReviewEvent) -> int:
+    async def append(
+        self, review_id: str, event: ReviewEvent, status: ReviewStatus | None = None
+    ) -> int:
         async with self._sessions.begin() as session:
             locked = await session.execute(
                 select(ReviewRow.id).where(ReviewRow.id == review_id).with_for_update()
             )
             if locked.scalar_one_or_none() is None:
                 raise KeyError(review_id)
+            if status is not None:
+                await session.execute(
+                    update(ReviewRow).where(ReviewRow.id == review_id).values(status=status.value)
+                )
             last: int | None = await session.scalar(
                 select(func.coalesce(func.max(ReviewEventRow.seq), 0)).where(
                     ReviewEventRow.review_id == review_id

@@ -42,7 +42,7 @@ TASK = TaskRef(agent="isracard", task_id="t1", context_id="c1")
 def test_fakes_satisfy_their_ports() -> None:
     assert isinstance(ScriptedCardAgentClient({}, {}), CardAgentClient)
     assert isinstance(InMemoryReviewRepository(), ReviewRepository)
-    assert isinstance(InMemoryReviewEventStore(), ReviewEventStore)
+    assert isinstance(InMemoryReviewEventStore(InMemoryReviewRepository()), ReviewEventStore)
     assert isinstance(InMemoryMerchantMemory(), MerchantMemory)
     assert isinstance(InMemoryReportMemory(), ReportMemory)
     assert isinstance(FakeReportWriter(), ReportWriter)
@@ -51,7 +51,7 @@ def test_fakes_satisfy_their_ports() -> None:
 
 
 async def test_event_store_sequences_per_review_and_lists_after_seq() -> None:
-    store = InMemoryReviewEventStore()
+    store = InMemoryReviewEventStore(InMemoryReviewRepository())
     first, second = ReviewEvent("a", {}), ReviewEvent("b", {})
     assert await store.append("r1", first) == 1
     assert await store.append("r1", second) == 2

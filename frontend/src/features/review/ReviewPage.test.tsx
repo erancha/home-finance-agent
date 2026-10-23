@@ -55,12 +55,13 @@ const expected: ExpectedData = {
   standingOrders: '250.00',
 }
 
-/** Runs a review to its report, with one raw row counted under dining. */
+/** Runs a review to completion, with one raw row counted under dining. */
 async function completedReview() {
   const user = await startReview()
   emit('transactions.batch', { agent: 'amex', month: '2026-09', count: 1, transactions: [row] }, 1)
   emit('review.totals', totals, 2)
   emit('review.report', { text: 'Budget review for 2026-09' }, 3)
+  emit('review.status', { status: 'completed' }, 4)
   return user
 }
 
@@ -121,6 +122,8 @@ describe('ReviewPage', () => {
       agent: 'amex', month: '2026-09', count: 1, transactions: [row],
     }, 1)
     emit('review.question', { questions: [question] }, 2)
+    expect(screen.queryByRole('combobox')).toBeNull()
+    emit('review.status', { status: 'waiting' }, 3)
     expect(screen.getByText('1 transactions from amex')).toBeInTheDocument()
     expect(screen.queryByRole('table', { name: 'Raw transactions' })).toBeNull()
     await user.click(screen.getByRole('button', { name: 'Raw transactions (1)' }))
@@ -134,10 +137,13 @@ describe('ReviewPage', () => {
 
     const progress = () => screen.getByRole('button', { name: 'Progress' })
     expect(progress()).toHaveAttribute('aria-expanded', 'true')
-    emit('review.totals', totals, 3)
-    emit('review.report', { text: 'Budget review for 2026-09' }, 4)
+    emit('review.status', { status: 'running' }, 4)
+    emit('review.totals', totals, 5)
+    emit('review.report', { text: 'Budget review for 2026-09' }, 6)
     expect(screen.getByText('121 / 100')).toBeInTheDocument()
     expect(screen.getByText('Budget review for 2026-09')).toBeInTheDocument()
+    expect(progress()).toHaveAttribute('aria-expanded', 'true')
+    emit('review.status', { status: 'completed' }, 7)
     expect(progress()).toHaveAttribute('aria-expanded', 'false')
   })
 
@@ -178,6 +184,8 @@ describe('ReviewPage', () => {
 
     emit('review.totals', totals, 2)
     emit('review.report', { text: 'Budget review for 2026-09' }, 3)
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    emit('review.status', { status: 'completed' }, 4)
     const category = screen.getByRole('combobox', { name: 'Category for שופרסל on 2026-09-02' })
     expect(category).toHaveValue('dining')
     await user.selectOptions(category, 'groceries')
@@ -185,8 +193,11 @@ describe('ReviewPage', () => {
 
     expect(api.recategorizeReview).toHaveBeenCalledExactlyOnceWith('r1', { shufersal: 'groceries' })
     await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument())
-    emit('review.totals', { ...totals, categories: { amex: { t1: 'groceries' } } }, 4)
-    emit('review.report', { text: 'Rewritten' }, 5)
+    emit('review.status', { status: 'running' }, 5)
+    emit('review.totals', { ...totals, categories: { amex: { t1: 'groceries' } } }, 6)
+    emit('review.report', { text: 'Rewritten' }, 7)
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    emit('review.status', { status: 'completed' }, 8)
     expect(screen.getByRole('combobox', { name: /Category for/ })).toHaveValue('groceries')
     expect(screen.getByText('Rewritten')).toBeInTheDocument()
   })
@@ -241,10 +252,13 @@ describe('ReviewPage', () => {
     )
     const user = await startReview()
     emit('review.question', { questions: [remoteQuestion] }, 1)
+    emit('review.status', { status: 'waiting' }, 2)
     await user.click(screen.getByRole('button', { name: 'continue' }))
     expect(screen.getByRole('button', { name: 'continue' })).toBeDisabled()
 
-    emit('review.question', { questions: [remoteQuestion] }, 2)
+    emit('review.status', { status: 'running' }, 3)
+    emit('review.question', { questions: [remoteQuestion] }, 4)
+    emit('review.status', { status: 'waiting' }, 5)
     await act(async () => acknowledge())
 
     expect(screen.getByRole('button', { name: 'continue' })).toBeEnabled()
@@ -295,6 +309,7 @@ describe('ReviewPage', () => {
     vi.mocked(api.answerReview).mockRejectedValue(new Error('review is running'))
     const user = await startReview()
     emit('review.question', { questions: [question] }, 1)
+    emit('review.status', { status: 'waiting' }, 2)
     await user.selectOptions(screen.getByRole('combobox'), 'dining')
     await user.click(screen.getByRole('button', { name: 'continue' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('review is running')
@@ -341,7 +356,9 @@ describe('ReviewPage', () => {
     await user.click(screen.getByRole('checkbox', { name: 'Include expected charges' }))
     await waitFor(() => expect(api.getExpected).toHaveBeenCalledOnce())
 
-    emit('review.totals', { ...totals, categories: { amex: { t1: 'groceries' } } }, 4)
+    emit('review.status', { status: 'running' }, 5)
+    emit('review.totals', { ...totals, categories: { amex: { t1: 'groceries' } } }, 6)
+    emit('review.status', { status: 'completed' }, 7)
 
     await waitFor(() => expect(api.getExpected).toHaveBeenCalledTimes(2))
   })
@@ -357,12 +374,15 @@ describe('ReviewPage', () => {
       .toBeInTheDocument()
   })
 
-  it('shows the expected charges at once when a card agent was skipped', async () => {
+  it('shows the expected charges once a review that skipped a card agent completed', async () => {
     vi.mocked(api.getExpected).mockResolvedValue(expected)
     const user = await startReview()
     emit('transactions.batch', { agent: 'amex', month: '2026-09', count: 1, transactions: [row] }, 1)
     emit('review.totals', { ...totals, skipped: ['visa'] }, 2)
     emit('review.report', { text: 'Budget review for 2026-09' }, 3)
+    // The server refuses the expected charges until the review's status is completed.
+    expect(api.getExpected).not.toHaveBeenCalled()
+    emit('review.status', { status: 'completed' }, 4)
 
     const box = screen.getByRole('checkbox', { name: 'Include expected charges' })
     expect(box).toBeChecked()
