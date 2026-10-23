@@ -272,7 +272,7 @@ async def test_statement_page_links_on_the_agent_browser_address_and_continue_re
     paused = await run(h)
     [question] = paused["__interrupt__"][0].value["questions"]
     assert question["link"] == "http://localhost:8020/statements.html"
-    assert question["actions"] == ["continue"]
+    assert question["actions"] == ["continue", "skip"]
 
     result = await run(h, answer({"remote:amex": "continue"}))
 

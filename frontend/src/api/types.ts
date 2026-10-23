@@ -64,6 +64,20 @@ export interface CategoryTotal {
   over: boolean
 }
 
+/** A completed review's charges still expected, projected from an earlier completed review. */
+export interface ExpectedData {
+  /** The month projected from; null when no earlier month has a completed review. */
+  basedOn: string | null
+  /** Ids are prefixed "expected-", apart from the review's own rows. */
+  transactions: Transaction[]
+  /** As in TotalsData, for the expected rows. */
+  categories: Record<string, Record<string, string>>
+  chosen: Record<string, string[]>
+  /** The review's totals with the expected spend added. */
+  totals: CategoryTotal[]
+  standingOrders: string
+}
+
 /** Whether a month has its review, and whether a review may start now. */
 export interface MonthView {
   month: string

@@ -94,12 +94,12 @@ interrupts, so rerunning `ask` emits nothing twice.
 for input (its statement is not loaded yet). "continue" sends `{"action": "continue"}` on that
 same A2A task, so the agent picks the request up where it paused; if the statement is still
 missing, the agent asks again. When the agent names a page for the request, the question carries
-`link`, that page on the agent's browser address (`AgentConfig.browser_url`), and offers only
-"continue": the person loads the statement there and then continues. A question without a page
-also offers "skip", which leaves the agent out: the review totals what it has, lists the agent
-under `skipped` in `review.totals`, and the report prompt asks the model to say plainly that the
-agent's spend is missing. A card agent that names a page for every missing statement, as the one
-in this demo does, never has its questions offer "skip".
+`link`, that page on the agent's browser address (`AgentConfig.browser_url`), where the person
+loads the statement and then continues. Every such question also offers "skip", which leaves the
+agent out: the review totals what it has, lists the agent under `skipped` in `review.totals`, and
+the report prompt asks the model to say plainly that the agent's spend is missing. A mid-month
+review needs it: the month's statement does not exist yet, so "continue" would only be asked
+again, and "Include expected charges" then projects the skipped agent's recurring charges.
 
 **Checkpoint types.** `checkpoint_serde()` gives the checkpointer an explicit allow-list of the
 domain types that can sit in the state (`CHECKPOINTED_TYPES`). LangGraph rebuilds only those types
@@ -206,6 +206,7 @@ with no agents) reaches the user verbatim in `review.failed`. Any other error is
 | `DELETE /api/reviews/{id}` | 204, and the review is cleared, freeing its month; 404 unknown or cleared review; 409 running. |
 | `POST /api/reviews/{id}/answers` `{"answers": {question id: value}}` | 204; 404 unknown review; 409 not waiting; 422 invalid answer set. |
 | `POST /api/reviews/{id}/categories` `{"categories": {merchant key: category}}` | 204, and the review reruns from `recategorize`; 404 unknown review; 409 not completed; 422 no categories, a merchant not in the review or an illegal category. |
+| `GET /api/reviews/{id}/expected` | 200 `{"basedOn", "transactions", "categories", "chosen", "totals", "standingOrders"}`: the charges the review's month still expects, projected from the person's latest completed, uncleared review of an earlier month (`basedOn`, null when there is none), their `categories` and `chosen` shaped as in `review.totals` so the page marks them as it marks charged rows, with the totals and standing-order spend they add up to; reads saved reviews only, reaching no card agent; 404 unknown review; 409 not completed. |
 | `GET /api/reviews/{id}/events` | The live event stream (below). |
 | `GET /health`, `GET /ready` | Process up; process up and the database answers `SELECT 1` (503 otherwise). |
 
@@ -297,9 +298,15 @@ latest totals counted for it; once the review is completed, a category can be ch
 every row of that merchant, and is sent to `/categories`. Choosing a category's slice or legend
 entry in the totals lists only the raw transactions counted under it; the Totals heading lists all
 again. Below the legend, the standing-order spend lists only the standing orders when chosen, and a
-box in the raw transactions turns that filter on and off. The page shows amounts in whole units with
-thousands separators; the server keeps them exact. A frame the page cannot parse is logged and shown
-as a stream error.
+box in the raw transactions turns that filter on and off. On a completed review, "Include expected
+charges" adds the rows `/expected` projects to the raw transactions (listed first and unfolded,
+marked "expected", never recategorized), the pie, its legend and the standing-order spend, and dims
+the report, which narrates the charged rows only. The box starts ticked on a review that skipped a
+card agent, whose recurring charges would otherwise be missing. The answer is fetched on the first
+tick and kept in the page while the box is toggled; new totals, as after a recategorize, make it
+stale, so it is fetched again. Nothing about it is stored. The page shows amounts in whole units
+with thousands separators; the server keeps them exact. A frame the page cannot parse is logged and
+shown as a stream error.
 
 ## Storage
 

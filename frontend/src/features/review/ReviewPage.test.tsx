@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as agentsApi from '../../api/agents.ts'
 import * as api from '../../api/reviews.ts'
-import type { MonthView, Transaction } from '../../api/types.ts'
+import type { ExpectedData, MonthView, Transaction } from '../../api/types.ts'
 import { FakeEventSource } from '../../test/fakeEventSource.ts'
 import { ApiException } from '../../api/client.ts'
 import { ReviewPage } from './ReviewPage.tsx'
@@ -37,6 +37,31 @@ const totals = {
   options: ['groceries', 'dining'],
   standingOrders: '0.00',
   skipped: [],
+}
+
+const gymExpected: Transaction = {
+  ...row, id: 'expected-g1', merchant: 'וים קלאבס', merchantKey: 'gym', amount: '250.00',
+  standingOrder: true, category: 'health', confidence: 'high',
+}
+const expected: ExpectedData = {
+  basedOn: '2026-08',
+  transactions: [gymExpected],
+  categories: { amex: { 'expected-g1': 'health' } },
+  chosen: { amex: ['expected-g1'] },
+  totals: [
+    ...totals.totals,
+    { category: 'health', spent: '250.00', limit: null, over: false },
+  ],
+  standingOrders: '250.00',
+}
+
+/** Runs a review to its report, with one raw row counted under dining. */
+async function completedReview() {
+  const user = await startReview()
+  emit('transactions.batch', { agent: 'amex', month: '2026-09', count: 1, transactions: [row] }, 1)
+  emit('review.totals', totals, 2)
+  emit('review.report', { text: 'Budget review for 2026-09' }, 3)
+  return user
 }
 
 /** The review the server holds for the month asked about; set by a start or a test. */
@@ -273,5 +298,79 @@ describe('ReviewPage', () => {
     await user.selectOptions(screen.getByRole('combobox'), 'dining')
     await user.click(screen.getByRole('button', { name: 'continue' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('review is running')
+  })
+
+  it('adds the charges still expected to the rows and totals, and dims the report', async () => {
+    vi.mocked(api.getExpected).mockResolvedValue(expected)
+    const user = await completedReview()
+    const box = screen.getByRole('checkbox', { name: 'Include expected charges' })
+    const report = () => screen.getByText('Budget review for 2026-09').closest('section')
+
+    await user.click(box)
+
+    expect(api.getExpected).toHaveBeenCalledExactlyOnceWith('r1')
+    expect(await screen.findByText('Expected charges are projected from 2026-08.'))
+      .toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Raw transactions (2)' }))
+      .toHaveAttribute('aria-expanded', 'true')
+    const raw = screen.getByRole('table', { name: 'Raw transactions' })
+    const [first] = within(raw).getAllByRole('row').slice(1)
+    expect(first).toHaveClass('expected')
+    expect(within(first).getByText('וים קלאבס')).toBeInTheDocument()
+    expect(within(first).getByText('high (overruled)')).toBeInTheDocument()
+    expect(within(raw).getByText('expected, standing order')).toBeInTheDocument()
+    expect(screen.getAllByRole('combobox')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'health' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Standing orders' }).closest('p'))
+      .toHaveTextContent('Standing orders 250 across categories')
+    expect(report()).toHaveClass('out-of-sync')
+
+    await user.click(box)
+    expect(screen.getByRole('button', { name: 'Raw transactions (1)' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'health' })).toBeNull()
+    expect(report()).not.toHaveClass('out-of-sync')
+
+    await user.click(box)
+    expect(screen.getByRole('button', { name: 'Raw transactions (2)' })).toBeInTheDocument()
+    expect(api.getExpected).toHaveBeenCalledOnce()
+  })
+
+  it('asks again for the expected charges once the totals changed', async () => {
+    vi.mocked(api.getExpected).mockResolvedValue(expected)
+    const user = await completedReview()
+    await user.click(screen.getByRole('checkbox', { name: 'Include expected charges' }))
+    await waitFor(() => expect(api.getExpected).toHaveBeenCalledOnce())
+
+    emit('review.totals', { ...totals, categories: { amex: { t1: 'groceries' } } }, 4)
+
+    await waitFor(() => expect(api.getExpected).toHaveBeenCalledTimes(2))
+  })
+
+  it('says when no earlier month has a completed review to project from', async () => {
+    vi.mocked(api.getExpected).mockResolvedValue({
+      basedOn: null, transactions: [], categories: {}, chosen: {}, totals: totals.totals,
+      standingOrders: '0.00',
+    })
+    const user = await completedReview()
+    await user.click(screen.getByRole('checkbox', { name: 'Include expected charges' }))
+    expect(await screen.findByText('No earlier month has a completed review to project from.'))
+      .toBeInTheDocument()
+  })
+
+  it('shows the expected charges at once when a card agent was skipped', async () => {
+    vi.mocked(api.getExpected).mockResolvedValue(expected)
+    const user = await startReview()
+    emit('transactions.batch', { agent: 'amex', month: '2026-09', count: 1, transactions: [row] }, 1)
+    emit('review.totals', { ...totals, skipped: ['visa'] }, 2)
+    emit('review.report', { text: 'Budget review for 2026-09' }, 3)
+
+    const box = screen.getByRole('checkbox', { name: 'Include expected charges' })
+    expect(box).toBeChecked()
+    expect(await screen.findByRole('button', { name: 'Raw transactions (2)' }))
+      .toHaveAttribute('aria-expanded', 'true')
+
+    await user.click(box)
+    expect(box).not.toBeChecked()
+    expect(screen.getByRole('button', { name: 'Raw transactions (1)' })).toBeInTheDocument()
   })
 })

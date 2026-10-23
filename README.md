@@ -54,6 +54,8 @@ closer to a service than to an agent, and much of the exchange would fit plain H
    sentences; the numbers themselves never come from it.
 6. On the finished review, choosing a category in the spending pie, or the standing orders, lists
    just those charges, and changing a merchant's category redoes the totals and the summary.
+7. Mid-month, "Include expected charges" adds the standing orders and installments the latest
+   earlier reviewed month says are still to come, so the pie shows where the month is heading.
 
 ## Getting started
 

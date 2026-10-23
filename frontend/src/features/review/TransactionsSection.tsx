@@ -21,6 +21,8 @@ export function uniqueTransactions(events: ReviewEvent[]): Transaction[] {
 
 interface Props {
   events: ReviewEvent[]
+  /** Charges the month still expects; listed first, unfolding the section, never recategorized. */
+  expected: Transaction[]
   /** The latest totals; each row shows the category they counted it under, once they exist. */
   totals: TotalsData | null
   /** Set while the review is completed and idle; resolves to whether the server accepted. */
@@ -36,9 +38,11 @@ interface Props {
   picks: number
 }
 
-/** Every row the card agents sent; folded so the long list does not push the totals down. */
+/** The charges still expected, when shown, then every row the card agents sent; folded so the long
+ * list does not push the totals down. */
 export function TransactionsSection({
   events,
+  expected,
   totals,
   onRecategorize,
   category,
@@ -59,18 +63,20 @@ export function TransactionsSection({
   if (!unfoldedForLow && inProgress && all.some((t) => t.confidence === 'low')) {
     setUnfoldedForLow(true)
   }
-  if (all.length === 0) return null
+  const isExpected = new Set(expected)
+  const rows = [...expected, ...all]
+  if (rows.length === 0) return null
   // A row streamed after the latest totals is not counted yet and shows the card's category.
   const counted = (t: Transaction) => totals?.categories[t.agent]?.[t.id] ?? t.category
   const chosen = (t: Transaction) => totals?.chosen[t.agent]?.includes(t.id) === true
-  const transactions = all.filter(
+  const transactions = rows.filter(
     (t) => (category === null || counted(t) === category) && (!standingOrders || t.standingOrder),
   )
   const filters = [category, standingOrders ? 'standing orders' : null].filter((f) => f !== null)
   const title =
     filters.length === 0
-      ? `Raw transactions (${all.length})`
-      : `Raw transactions: ${filters.join(', ')} (${transactions.length} of ${all.length})`
+      ? `Raw transactions (${rows.length})`
+      : `Raw transactions: ${filters.join(', ')} (${transactions.length} of ${rows.length})`
   const editable = onRecategorize !== null && totals !== null && !applying
   const changed = Object.keys(pending).length
 
@@ -83,9 +89,9 @@ export function TransactionsSection({
 
   return (
     <CollapsibleSection
-      key={`${picks}:${unfoldedForLow}`}
+      key={`${picks}:${unfoldedForLow}:${expected.length > 0}`}
       title={title}
-      defaultCollapsed={picks === 0 && !unfoldedForLow}
+      defaultCollapsed={picks === 0 && !unfoldedForLow && expected.length === 0}
     >
       <label>
         <input
@@ -115,7 +121,7 @@ export function TransactionsSection({
           </thead>
           <tbody>
             {transactions.map((t) => (
-              <tr key={`${t.agent}/${t.id}`}>
+              <tr key={`${t.agent}/${t.id}`} className={isExpected.has(t) ? 'expected' : undefined}>
                 <td>{t.transactionDate}</td>
                 <td>{t.agent}</td>
                 <td
@@ -126,9 +132,13 @@ export function TransactionsSection({
                   {t.merchant}
                 </td>
                 <td>{formatAmount(t.amount)}</td>
-                <td>{transactionDetails(t)}</td>
                 <td>
-                  {editable ? (
+                  {[isExpected.has(t) ? 'expected' : '', transactionDetails(t)]
+                    .filter((part) => part !== '')
+                    .join(', ')}
+                </td>
+                <td>
+                  {editable && !isExpected.has(t) ? (
                     <select
                       aria-label={`Category for ${t.merchant} on ${t.transactionDate}`}
                       value={pending[t.merchantKey] ?? counted(t)}

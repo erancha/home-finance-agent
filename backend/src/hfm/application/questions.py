@@ -2,10 +2,10 @@
 
 Core building blocks:
 - build_questions: one categorize question per merchant a card agent was unsure of, one per agent
-  awaiting input; an agent that names a page for the request gets a link to it and only
-  "continue", since the person resolves the request there, and an agent that could not verify the
-  person offers only "continue" too, since the person signs in again and the continue carries
-  the fresh token
+  awaiting input, offering "continue" and "skip"; an agent that names a page for the request gets
+  a link to it, where the person resolves the request, while "skip" serves a month whose
+  statement does not exist yet; an agent that could not verify the person offers only
+  "continue", since the person signs in again and the continue carries the fresh token
 - interrupt_payload: the wire form of the questions handed to the caller
 - validate_answers: accepts answers to any subset of the categorize questions, since a person
   may not recall every merchant, and requires every remote question; each value must be a legal
@@ -65,12 +65,10 @@ def _remote_question(event: InputRequired, agent: AgentConfig) -> RemoteInputQue
         return RemoteInputQuestion(
             question_id, agent.name, event.text, event.reason, None, (CONTINUE,)
         )
-    if event.page is None:
-        return RemoteInputQuestion(
-            question_id, agent.name, event.text, event.reason, None, (CONTINUE, SKIP)
-        )
-    link = urljoin(agent.browser_url, event.page)
-    return RemoteInputQuestion(question_id, agent.name, event.text, event.reason, link, (CONTINUE,))
+    link = None if event.page is None else urljoin(agent.browser_url, event.page)
+    return RemoteInputQuestion(
+        question_id, agent.name, event.text, event.reason, link, (CONTINUE, SKIP)
+    )
 
 
 def interrupt_payload(questions: list[Question]) -> dict[str, Any]:

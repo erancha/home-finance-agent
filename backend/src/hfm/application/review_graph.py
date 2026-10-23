@@ -55,6 +55,7 @@ from hfm.domain.events import (
     TRANSACTIONS_BATCH,
     ReviewEvent,
     money_text,
+    row_categories,
     total_to_dict,
     transaction_to_dict,
 )
@@ -179,19 +180,12 @@ def build_review_graph(
         spend they lack, each row's category as counted, the rows whose category the person
         chose, and the categories a person may assign."""
         current = totals(transactions, deps.budget)
-        categories: dict[str, dict[str, str]] = {}
-        chosen: dict[str, list[str]] = {}
-        for t in transactions:
-            categories.setdefault(t.agent, {})[t.id] = t.category
-            if t.chosen:
-                chosen.setdefault(t.agent, []).append(t.id)
         await emit(REVIEW_TOTALS, {
             "currency": deps.budget.currency,
             "totals": [total_to_dict(t) for t in current],
             "standingOrders": money_text(standing_orders(transactions)),
             "skipped": skipped,
-            "categories": categories,
-            "chosen": chosen,
+            **row_categories(transactions),
             "options": list(CATEGORY_OPTIONS),
         })
         return current

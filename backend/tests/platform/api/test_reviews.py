@@ -12,6 +12,7 @@ from hfm.platform.api.auth import COOKIE
 from hfm.platform.app import AppDeps, create_app
 from hfm.platform.review_runner import DAILY_REVIEW_LIMIT, ReviewRunner
 from hfm.ports import CardAgentClient
+from tests.builders import make_tx
 from tests.platform.support import (
     CATEGORY_QUESTION,
     COMPLETED,
@@ -20,6 +21,7 @@ from tests.platform.support import (
     GROCERIES,
     MONTH,
     NOAM_TOKEN,
+    OTHER_MONTH,
     REMOTE_QUESTION,
     REPORT,
     UNKNOWN_KEY,
@@ -49,8 +51,8 @@ class Api:
         runner: ReviewRunner = app.state.runner
         self.call(runner.drain)
 
-    def start(self) -> str:
-        response = self.client.post("/api/reviews", json={"month": MONTH})
+    def start(self, month: str = MONTH) -> str:
+        response = self.client.post("/api/reviews", json={"month": month})
         assert response.status_code == 202
         review_id: str = response.json()["id"]
         self.drain()
@@ -230,3 +232,30 @@ def test_another_persons_review_is_404_and_their_month_is_free(new_api: NewApi) 
     assert api.client.delete(f"/api/reviews/{review_id}").status_code == 404
     assert api.client.get(f"/api/reviews/{review_id}/events").status_code == 404
     assert api.client.get(f"/api/months/{MONTH}").json()["review"] is None
+
+
+def test_the_expected_route_projects_the_earlier_months_standing_orders(new_api: NewApi) -> None:
+    gym = make_tx(id="9", raw_merchant="וים קלאבס", category="health", standing_order=True)
+    chosen = make_tx(
+        id="8", raw_merchant="Bezeq", category="utilities", standing_order=True
+    ).with_category("housing")
+    api = new_api(scripted([batch(gym, chosen), COMPLETED], [batch(GROCERIES), COMPLETED]))
+    api.start(OTHER_MONTH)
+    review_id = api.start()
+
+    body = api.client.get(f"/api/reviews/{review_id}/expected").json()
+
+    assert body["basedOn"] == OTHER_MONTH
+    assert [t["id"] for t in body["transactions"]] == ["expected-9", "expected-8"]
+    assert body["categories"] == {"amex": {"expected-9": "health", "expected-8": "housing"}}
+    assert body["chosen"] == {"amex": ["expected-8"]}
+    assert {t["category"]: t["spent"] for t in body["totals"]} == {
+        "groceries": "86.90", "housing": "86.90", "health": "86.90",
+    }
+    assert body["standingOrders"] == "173.80"
+
+
+def test_the_expected_route_is_409_for_a_review_that_is_not_completed(new_api: NewApi) -> None:
+    api = new_api(scripted(UNKNOWN_MERCHANT))
+    review_id = api.start()
+    assert api.client.get(f"/api/reviews/{review_id}/expected").status_code == 409

@@ -53,8 +53,7 @@ def test_build_questions_ids_and_options() -> None:
     )
 
 
-def test_build_questions_links_the_agent_page_on_its_browser_address_and_offers_only_continue(
-) -> None:
+def test_build_questions_links_the_agent_page_on_its_browser_address_and_offers_skip() -> None:
     _, remote = questions(STATEMENT_MISSING)
     assert remote == RemoteInputQuestion(
         "remote:amex",
@@ -62,7 +61,7 @@ def test_build_questions_links_the_agent_page_on_its_browser_address_and_offers_
         "No statement covers 2026-09",
         "statement-missing",
         "http://localhost:8020/statements.html",
-        ("continue",),
+        ("continue", "skip"),
     )
 
 
@@ -77,10 +76,9 @@ def test_build_questions_offers_only_continue_when_the_agent_asks_to_sign_in_aga
     assert "remote:amex" in rejected.value.invalid
 
 
-def test_validate_answers_rejects_skip_for_a_linked_question() -> None:
-    with pytest.raises(InvalidAnswersError) as err:
-        validate_answers(questions(STATEMENT_MISSING), {"cat:x": "health", "remote:amex": "skip"})
-    assert err.value.invalid == {"remote:amex": "'skip' is not one of continue"}
+def test_validate_answers_accepts_skip_for_a_linked_question() -> None:
+    answers = validate_answers(questions(STATEMENT_MISSING), {"remote:amex": "skip"})
+    assert answers.remote == {"amex": "skip"}
 
 
 def test_interrupt_payload_serialises_each_question() -> None:

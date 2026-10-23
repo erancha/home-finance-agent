@@ -94,6 +94,22 @@ class PostgresReviewRepository:
             )
         return None if row is None else _review(row)
 
+    async def latest_completed_before(self, user_id: str, month: str) -> Review | None:
+        # YYYY-MM months order as text.
+        async with self._sessions() as session:
+            row = await session.scalar(
+                select(ReviewRow)
+                .where(
+                    ReviewRow.user_id == user_id,
+                    ReviewRow.month < month,
+                    ReviewRow.status == ReviewStatus.COMPLETED.value,
+                    ReviewRow.cleared_at.is_(None),
+                )
+                .order_by(ReviewRow.month.desc())
+                .limit(1)
+            )
+        return None if row is None else _review(row)
+
     async def list_created_since(self, user_id: str, since: datetime) -> list[Review]:
         async with self._sessions() as session:
             rows = await session.scalars(

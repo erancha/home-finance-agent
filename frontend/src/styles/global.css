@@ -104,6 +104,9 @@ td[dir="auto"] { text-align: left; }
 .confidence-low { background: var(--unsure-bg); }
 .failure { background: var(--bad); color: white; padding: 0.75rem 1rem; font-weight: 600; }
 .report { white-space: pre-wrap; font-family: inherit; }
+/* The report narrates the charged rows only, so it fades while expected ones are shown. */
+.out-of-sync { opacity: 0.45; }
+.transactions tr.expected { font-style: italic; color: var(--muted); }
 /* A section heading that folds its body; the button keeps the heading's look. */
 .disclosure { all: unset; cursor: pointer; }
 /* Headings and legend entries that pick what the raw transactions show keep their text look. */

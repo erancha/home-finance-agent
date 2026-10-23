@@ -3,16 +3,19 @@ import { getAgents } from '../../api/agents.ts'
 import {
   answerReview,
   clearReview,
+  getExpected,
   getMonth,
   recategorizeReview,
   startReview,
 } from '../../api/reviews.ts'
 import type {
   Answers,
+  ExpectedData,
   MerchantCategories,
   MonthView,
   Question,
   SequencedEvent,
+  TotalsData,
 } from '../../api/types.ts'
 import { useReviewEvents } from '../../hooks/useReviewEvents.ts'
 import { EventFeed } from './EventFeed.tsx'
@@ -35,6 +38,12 @@ interface Shown {
 
 const SHOW_ALL: Shown = { category: null, standingOrders: false, picks: 0 }
 
+/** The expected charges as fetched against one totals event; later totals make them stale. */
+interface Fetched {
+  totalsSeq: number
+  data: ExpectedData
+}
+
 interface Pause {
   seq: number
   questions: Question[]
@@ -52,6 +61,23 @@ function openPause(events: SequencedEvent[], answeredSeq: number | null): Pause 
   if (latest?.type !== 'review.question' || latest.seq === answeredSeq) return null
   if (events.slice(index + 1).some((e) => RESOLVING_EVENTS.has(e.type))) return null
   return { seq: latest.seq, questions: latest.data.questions }
+}
+
+/** The review's totals as they read with the expected rows counted; every reader of the totals,
+ * the raw transactions included, then treats expected rows as it treats charged ones. */
+function withExpectedRows(actual: TotalsData, expected: ExpectedData): TotalsData {
+  const agents = new Set([...Object.keys(actual.categories), ...Object.keys(expected.categories)])
+  return {
+    ...actual,
+    totals: expected.totals,
+    standingOrders: expected.standingOrders,
+    categories: Object.fromEntries(
+      [...agents].map((a) => [a, { ...actual.categories[a], ...expected.categories[a] }]),
+    ),
+    chosen: Object.fromEntries(
+      [...agents].map((a) => [a, [...(actual.chosen[a] ?? []), ...(expected.chosen[a] ?? [])]]),
+    ),
+  }
 }
 
 function errorText(error: unknown): string {
@@ -79,6 +105,10 @@ export function ReviewPage() {
   // The last event's seq when categories were sent; the rerun ends with a later report or failure.
   const [recategorizedAt, setRecategorizedAt] = useState<number | null>(null)
   const [shown, setShown] = useState<Shown>(SHOW_ALL)
+  // The person's own tick or untick; until they make one, a review that skipped a card agent shows
+  // the expected charges, since the skipped card's recurring charges are otherwise missing.
+  const [expectedChoice, setExpectedChoice] = useState<boolean | null>(null)
+  const [fetchedExpected, setFetchedExpected] = useState<Fetched | null>(null)
   // A view of a month no longer picked is stale and shows nothing.
   const view = fetchedView !== null && fetchedView.month === month ? fetchedView : null
   const review = view === null ? null : view.review
@@ -90,6 +120,8 @@ export function ReviewPage() {
     setAnsweredSeq(null)
     setRecategorizedAt(null)
     setShown(SHOW_ALL)
+    setExpectedChoice(null)
+    setFetchedExpected(null)
   }
   const { events, streamError } = useReviewEvents(reviewId)
   const pause = openPause(events, answeredSeq)
@@ -106,6 +138,16 @@ export function ReviewPage() {
     review !== null &&
     (review.status === 'running' || review.status === 'waiting')
   const completed = report !== undefined && failure === undefined && pause === null && rerunSettled
+  const totalsSeq = totals?.type === 'review.totals' ? totals.seq : null
+  const withExpected =
+    expectedChoice ?? (totals?.type === 'review.totals' && totals.data.skipped.length > 0)
+  const expected =
+    withExpected && completed && fetchedExpected !== null && fetchedExpected.totalsSeq === totalsSeq
+      ? fetchedExpected.data
+      : null
+  const actualTotals = totals?.type === 'review.totals' ? totals.data : null
+  const shownTotals =
+    actualTotals !== null && expected !== null ? withExpectedRows(actualTotals, expected) : actualTotals
   // The server refuses to clear a running review; one that ended or waits for answers can go.
   const clearable = completed || failure !== undefined || pause !== null
 
@@ -132,6 +174,22 @@ export function ReviewPage() {
       current = false
     }
   }, [month, viewVersion])
+
+  // Fetched on the first tick and kept while the box is toggled; new totals, as after a
+  // recategorize, make the kept answer stale and the next shown state fetches again.
+  const expectedStale =
+    withExpected && completed && totalsSeq !== null && fetchedExpected?.totalsSeq !== totalsSeq
+  useEffect(() => {
+    if (!expectedStale || reviewId === null || totalsSeq === null) return
+    let current = true
+    getExpected(reviewId).then(
+      (data) => current && setFetchedExpected({ totalsSeq, data }),
+      (e: unknown) => current && setError(errorText(e)),
+    )
+    return () => {
+      current = false
+    }
+  }, [expectedStale, reviewId, totalsSeq])
 
   function pick(picked: string) {
     setError(null)
@@ -216,11 +274,31 @@ export function ReviewPage() {
           onSubmit={(answers) => submit(pause.seq, answers)}
         />
       )}
+      {completed && totalsSeq !== null && (
+        <section>
+          <label>
+            <input
+              type="checkbox"
+              checked={withExpected}
+              onChange={(e) => setExpectedChoice(e.target.checked)}
+            />{' '}
+            Include expected charges
+          </label>{' '}
+          {expected !== null && (
+            <span className="muted">
+              {expected.basedOn === null
+                ? 'No earlier month has a completed review to project from.'
+                : `Expected charges are projected from ${expected.basedOn}.`}
+            </span>
+          )}
+        </section>
+      )}
       {reviewId !== null && (
         <TransactionsSection
           key={reviewId}
           events={events}
-          totals={totals?.type === 'review.totals' ? totals.data : null}
+          expected={expected === null ? [] : expected.transactions}
+          totals={shownTotals}
           onRecategorize={completed ? recategorize : null}
           category={shown.category}
           standingOrders={shown.standingOrders}
@@ -229,11 +307,11 @@ export function ReviewPage() {
           picks={shown.picks}
         />
       )}
-      {totals?.type === 'review.totals' && totals.data.totals.length > 0 && (
+      {shownTotals !== null && shownTotals.totals.length > 0 && (
         <TotalsChart
-          totals={totals.data.totals}
-          standingOrders={totals.data.standingOrders}
-          skipped={totals.data.skipped}
+          totals={shownTotals.totals}
+          standingOrders={shownTotals.standingOrders}
+          skipped={shownTotals.skipped}
           selected={shown.category}
           onSelect={(category) =>
             setShown(({ picks }) => ({ category, standingOrders: false, picks: picks + 1 }))
@@ -243,7 +321,7 @@ export function ReviewPage() {
           }
         />
       )}
-      {report?.type === 'review.report' && <Report text={report.data.text} />}
+      {report?.type === 'review.report' && <Report text={report.data.text} outOfSync={expected !== null} />}
     </main>
   )
 }

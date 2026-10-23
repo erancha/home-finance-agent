@@ -208,3 +208,24 @@ async def test_list_created_since_counts_the_users_own_reviews_cleared_included(
     await repo.add(replace(make_review("r-since-theirs", OTHER_USER), created_at=since))
 
     assert [r.id for r in await repo.list_created_since(USER, since)] == [older.id, newer.id]
+
+
+async def test_latest_completed_before_skips_later_unfinished_cleared_and_others(sessions) -> None:
+    repo = PostgresReviewRepository(sessions)
+    user = "1003"
+
+    def review(review_id: str, month: str, status: ReviewStatus, owner: str = user) -> Review:
+        return replace(make_review(review_id, owner), month=month, status=status)
+
+    older = review("r-base-older", "2026-07", ReviewStatus.COMPLETED)
+    base = review("r-base", "2026-08", ReviewStatus.COMPLETED)
+    await repo.add(older)
+    await repo.add(base)
+    await repo.add(review("r-base-failed", "2026-09", ReviewStatus.FAILED))
+    await repo.add(review("r-base-cleared", "2026-10", ReviewStatus.COMPLETED))
+    await repo.clear("r-base-cleared", datetime(2026, 10, 20, tzinfo=UTC))
+    await repo.add(review("r-base-same", "2026-11", ReviewStatus.COMPLETED))
+    await repo.add(review("r-base-theirs", "2026-10", ReviewStatus.COMPLETED, OTHER_USER))
+
+    assert await repo.latest_completed_before(user, "2026-11") == base
+    assert await repo.latest_completed_before(user, "2026-07") is None

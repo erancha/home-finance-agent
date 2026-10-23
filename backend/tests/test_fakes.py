@@ -131,3 +131,18 @@ def test_token_verifier_names_the_person_behind_a_known_token_and_refuses_others
     assert verifier.verify("tok-dana").user == dana
     with pytest.raises(InvalidTokenError):
         verifier.verify("tok-nobody")
+
+
+async def test_in_memory_reviews_name_the_latest_completed_review_of_an_earlier_month() -> None:
+    reviews = InMemoryReviewRepository()
+    at = datetime(2026, 10, 1, tzinfo=UTC)
+    base = Review("r1", "u", "2026-09", ReviewStatus.COMPLETED, at)
+    await reviews.add(Review("r0", "u", "2026-08", ReviewStatus.COMPLETED, at))
+    await reviews.add(base)
+    await reviews.add(Review("r2", "u", "2026-10", ReviewStatus.FAILED, at))
+    await reviews.add(Review("r3", "other", "2026-10", ReviewStatus.COMPLETED, at))
+    await reviews.add(Review("r4", "u", "2026-11", ReviewStatus.COMPLETED, at))
+    await reviews.clear("r4", at)
+
+    assert await reviews.latest_completed_before("u", "2026-12") == base
+    assert await reviews.latest_completed_before("u", "2026-08") is None
