@@ -144,7 +144,7 @@ agent behind the edge (`deploy: replicas` in compose), and everything a review n
 processes: every event is appended to Postgres before it is published and a stream replays the log
 by sequence number, sign-in is a cookie verified on every request, live events travel through Redis,
 and a paused review belongs to no process, so whichever replica receives the answer resumes it from
-the checkpoint. Three single-process assumptions remain in `platform/review_runner.py`, so the
+the checkpoint. Two single-process assumptions remain in `platform/review_runner.py`, so the
 replicas serve people correctly under these operating conditions:
 
 1. **No replica boots while a review is `running`.** The startup sweep fails every `running`
@@ -155,15 +155,12 @@ replicas serve people correctly under these operating conditions:
    per-process lock, so two answers for one review landing on two replicas at once would both
    resume its graph, and the daily start limit can be exceeded by one. A person clicking once
    cannot cause this.
-3. **First boot on an empty database starts one replica before the others.** Every replica runs
-   the checkpointer's table setup, and Postgres can fail one of two concurrent creates.
 
-A fourth gap is out of a person's reach: between the question event and the `waiting` status (two
+A third gap is out of a person's reach: between the question event and the `waiting` status (two
 checkpoints and one status write, tens of milliseconds), an answer reaching the non-owning replica
 gets 409 instead of being held until the run settles. Only a client that answers the instant the
 question arrives can hit it, which is why the end-to-end test runs one replica. Lifting the
-conditions means an owner lease per running review, or runs moved to a worker tier, and the
-checkpointer's table setup moved into the migration run.
+conditions means an owner lease per running review, or runs moved to a worker tier.
 
 **Starts are rationed.** Every start fetches the month from the card agents, which classify its
 merchants with a model, and has a model write the report unless the person's report memory holds
@@ -314,8 +311,9 @@ One Postgres database (`postgres:16` in compose, published on `127.0.0.1:5434`):
   the prompt, its month and the text the model wrote for it), created by the Alembic migrations
   in `backend/alembic/versions/`,
   which also move remembered categories onto the current category list.
-- LangGraph's checkpoint tables, created by `AsyncPostgresSaver.setup()` when the app starts; the
-  thread id is the review id, whose owner the `reviews` row names.
+- LangGraph's checkpoint tables, created or brought to the installed library's version by the
+  saver's own setup at the end of every migration run (`backend/alembic/env.py`), never by the
+  app; the thread id is the review id, whose owner the `reviews` row names.
 
 A person's merchant memory is shared by all their reviews and kept until changed, so a second
 review of the same month asks nothing; the end-to-end test therefore runs on a fresh database. A
