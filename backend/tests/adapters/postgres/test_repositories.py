@@ -44,21 +44,30 @@ def make_review(review_id: str, user_id: str = USER) -> Review:
     )
 
 
-async def test_review_round_trip_and_status_change(sessions) -> None:
+async def test_review_round_trip(sessions) -> None:
     repo = PostgresReviewRepository(sessions)
     review = make_review("r-round-trip")
     await repo.add(review)
     assert await repo.get("r-round-trip") == review
-    await repo.set_status("r-round-trip", ReviewStatus.COMPLETED)
-    assert (await repo.get("r-round-trip")).status is ReviewStatus.COMPLETED
+
+
+async def test_an_event_carrying_a_status_changes_the_review_with_it(sessions) -> None:
+    repo = PostgresReviewRepository(sessions)
+    await repo.add(make_review("r-status"))
+    store = PostgresReviewEventStore(sessions)
+
+    await store.append("r-status", ReviewEvent("plain", {}))
+    assert (await repo.get("r-status")).status is ReviewStatus.RUNNING
+    await store.append("r-status", ReviewEvent("done", {}), ReviewStatus.COMPLETED)
+
+    assert (await repo.get("r-status")).status is ReviewStatus.COMPLETED
+    assert [e.type for _, e in await store.list("r-status")] == ["plain", "done"]
 
 
 async def test_unknown_review_raises_key_error(sessions) -> None:
     repo = PostgresReviewRepository(sessions)
     with pytest.raises(KeyError):
         await repo.get("missing")
-    with pytest.raises(KeyError):
-        await repo.set_status("missing", ReviewStatus.FAILED)
     with pytest.raises(KeyError):
         await repo.clear("missing", datetime.now(UTC))
 

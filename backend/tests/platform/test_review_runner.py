@@ -7,7 +7,7 @@ import pytest
 import structlog.testing
 
 from hfm.domain.errors import InvalidAnswersError
-from hfm.domain.events import REVIEW_FAILED, REVIEW_QUESTION, REVIEW_REPORT
+from hfm.domain.events import REVIEW_FAILED, REVIEW_QUESTION, REVIEW_REPORT, REVIEW_STATUS
 from hfm.domain.models import Review, ReviewStatus
 from hfm.platform.app import AppDeps
 from hfm.platform.review_runner import (
@@ -132,7 +132,23 @@ async def test_full_answers_complete_the_review_with_a_report(new_run: NewRun) -
     assert view.questions == []
     assert view.skipped == []
     assert {t.category for t in view.totals} == {"groceries", "dining"}
-    assert (await run.event_types(review_id))[-1] == REVIEW_REPORT
+    assert (await run.event_types(review_id))[-2:] == [REVIEW_REPORT, REVIEW_STATUS]
+
+
+async def test_every_status_change_after_the_start_is_logged_after_the_runs_events(
+    new_run: NewRun,
+) -> None:
+    run = new_run(scripted(UNKNOWN_MERCHANT))
+    review_id = await run.runner.start(DANA, MONTH, DANA_TOKEN)
+    await run.runner.drain()
+    await run.runner.answer(DANA, review_id, {CATEGORY_QUESTION: "dining"}, DANA_TOKEN)
+    await run.runner.drain()
+
+    events = [event for _, event in await run.deps.events.list(review_id)]
+    statuses = [e.data["status"] for e in events if e.type == REVIEW_STATUS]
+    assert statuses == ["waiting", "running", "completed"]
+    types = [e.type for e in events]
+    assert types.index(REVIEW_QUESTION) < types.index(REVIEW_STATUS)
 
 
 async def test_answers_sent_right_after_the_question_wait_for_the_pausing_run(

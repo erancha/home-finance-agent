@@ -133,6 +133,13 @@ starts a day.
 | `completed` | The graph reached its end. |
 | `failed` | The invocation raised; a `review.failed` event carries the message. |
 
+**Every status change is an event.** Except for the `running` status a new review starts with,
+each status is written in the same transaction as an event in the review's log: `review.status`
+names the new status, and `review.failed` sets `failed`. `waiting` and `completed` are written only
+after the invocation's last checkpoint. The page takes the review's status from these events, so by
+the time it shows a question or a completed review, the database already holds that status for
+every replica, and an answer or a request for the expected charges sent straight away is accepted.
+
 **A restart keeps waiting reviews and fails running ones.** A `waiting` review is only a saved
 state, so it can be answered after any restart; a review still `running` when the server starts lost
 its invocation with the old process, so startup marks it `failed` with the `review.failed` message
@@ -156,11 +163,11 @@ replicas serve people correctly under these operating conditions:
    resume its graph, and the daily start limit can be exceeded by one. A person clicking once
    cannot cause this.
 
-A third gap is out of a person's reach: between the question event and the `waiting` status (two
-checkpoints and one status write, tens of milliseconds), an answer reaching the non-owning replica
-gets 409 instead of being held until the run settles. Only a client that answers the instant the
-question arrives can hit it, which is why the end-to-end test runs one replica. Lifting the
-conditions means an owner lease per running review, or runs moved to a worker tier.
+A third gap cannot affect the page. A client that answers as soon as the question event arrives,
+before the `waiting` status event, may reach a replica that is not running the review; that
+replica refuses with 409 instead of holding the answer until the run settles. The page waits for
+the `review.status` event, so it never answers that early. Lifting the conditions means an owner
+lease per running review, or runs moved to a worker tier.
 
 **Starts are rationed.** Every start fetches the month from the card agents, which classify its
 merchants with a model, and has a model write the report unless the person's report memory holds
@@ -188,9 +195,10 @@ not inside the graph: LangGraph keeps the resume value of a failed run and repla
 resume of the thread, so one bad answer set would break the review for good.
 
 **Answers that race the pause.** `pose` emits `review.question` before `ask` saves the pause, so a
-quick client can answer while the run is still settling. The runner then waits up to 30 seconds
-(`SETTLE_SECONDS`) for the run to stop instead of refusing with 409. The review view
-(`GET /api/reviews/{id}`) offers questions only once the run has settled.
+client that answers as soon as that event arrives may do so while the run is still settling. The
+replica running the review then waits up to 30 seconds (`SETTLE_SECONDS`) for the run to stop
+instead of refusing with 409. The review view (`GET /api/reviews/{id}`) offers questions only once
+the status is `waiting`.
 
 **Failures are readable.** A `ReviewError` (an unusable agent, an agent's failed task, a review
 with no agents) reaches the user verbatim in `review.failed`. Any other error is reported as
@@ -264,7 +272,8 @@ agent's page, as a button, and continue.
 | `review.totals` | `currency`, `totals` (`category`, `spent`, `limit`, `over`), `standingOrders` (the spend charged by standing order, across categories), `skipped`, `categories` (agent to row id to the category the totals counted), `chosen` (agent to the ids of rows whose category the person chose), `options` (the categories a person may assign) |
 | `review.writing` | nothing beyond `at`: the model is being asked for the summary, which can take a while. |
 | `review.report` | `text` |
-| `review.failed` | `message` |
+| `review.failed` | `message`; the review is now `failed` |
+| `review.status` | `status`: the review's new status, `running`, `waiting` or `completed` |
 
 `GET /api/reviews/{id}/events` is a server-sent event stream (`platform/api/events.py`). It
 subscribes to the review's live channel first, then replays the log, then sends live events; a live
@@ -285,10 +294,12 @@ stream of the reviews it runs.
 
 **The page renders from the stream.** Questions, the spending pie and the report come from the
 latest `review.question`, `review.totals` and `review.report` events, each sequence number kept
-once. The page puts the picked month in its URL (`?month=YYYY-MM`) and reads the month's view (`GET
-/api/months/{month}`) whenever the month changes and after a start or a clear; a month with a
-standing review replays that review's log, so a reload or a link opened later shows it where it
-stands, open question included. The raw transactions, folded above the totals, unfold once when a
+once. Whether the review is running, waiting for answers or completed comes from the latest
+`review.status` or `review.failed` event; until the log holds one, the page uses the status in the
+month's view. The page puts the picked month in its URL (`?month=YYYY-MM`) and reads the month's
+view (`GET /api/months/{month}`) whenever the month changes and after a start or a clear; a month
+with a standing review replays that review's log, so a reload or a link opened later shows it where
+it stands, open question included. The raw transactions, folded above the totals, unfold once when a
 `low`-confidence row arrives while the review is in progress (not when a finished review is
 reopened); they show each row's merchant, with the statement text as its tooltip when they differ,
 the card agent's confidence ("AI confidence": red below `high`, on yellow when `low`, marked

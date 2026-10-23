@@ -122,6 +122,8 @@ export type ReviewEvent =
   | { type: 'review.writing'; data: Stamped<Record<never, never>> }
   | { type: 'review.report'; data: Stamped<{ text: string }> }
   | { type: 'review.failed'; data: Stamped<{ message: string }> }
+  /** The review's status changed; a failure is announced by review.failed instead. */
+  | { type: 'review.status'; data: Stamped<{ status: Exclude<ReviewStatus, 'failed'> }> }
 
 export type ReviewEventType = ReviewEvent['type']
 
@@ -137,4 +139,5 @@ export const REVIEW_EVENT_TYPES: readonly ReviewEventType[] = [
   'review.writing',
   'review.report',
   'review.failed',
+  'review.status',
 ]
