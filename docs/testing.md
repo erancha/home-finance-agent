@@ -135,6 +135,7 @@ checks the shutdown handler restores the default action in its place.
 | `test_architecture.py` | Runs `lint-imports` inside pytest. |
 | `test_requirements_lock.py` | Every direct dependency is pinned exactly in `requirements.txt`, the lock was compiled on the Python the image runs (`scripts/lock.sh`), and both the Dockerfile and the test venv install under it. |
 | `test_readme_toc.py` | Every README contents link reaches a heading. |
+| `test_edge_config.py` | The nginx edge resolves the manager name through Docker's DNS while it runs, so scaled or recreated replicas take traffic without an edge restart. |
 | `test_docker_compose_ports.py` | Postgres is published on `127.0.0.1` only; only the nginx edge (8010) and, in the end-to-end file, amex-agent (8020) listen on every interface, and the home finance agent itself publishes no port. |
 | `test_env_example.py` | `backend/.env.example` documents every settings key and nothing else beyond the named operational keys. |
 | `test_docker_compose_replicas.py` | The development stack runs more than one replica of the agent sharing the `redis` service; the end-to-end file runs one. |
