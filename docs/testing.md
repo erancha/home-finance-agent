@@ -74,7 +74,10 @@ person's rows past the retention while another person's stay.
 values intact, shows the default serializer losing a domain value that the allow-list keeps, and
 reads a checkpoint back after every server connection was terminated, as a database restart does;
 `platform/test_db.py` proves the same for the SQLAlchemy sessions. Both sever the connections
-through `tests/platform/database_outage.py`.
+through `tests/platform/database_outage.py`. `platform/test_migrations.py` runs on a database
+that saw only the migration run and finds the checkpoint tables at the library's latest version,
+then drops the saver's version table and opens the checkpointer, which leaves it dropped: the
+tables are the migration run's, so replicas booting together never create them.
 
 **Graph.** `application/test_review_graph.py` runs the real graph on fakes and an in-memory
 checkpointer with the review's serializer. It covers the happy path, a second review with the same
