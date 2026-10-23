@@ -43,6 +43,11 @@ class ReviewRepository(Protocol):
         """Return the user's review of the month that is not cleared; None when there is none."""
         ...
 
+    async def latest_completed_before(self, user_id: str, month: str) -> Review | None:
+        """Return the user's completed review, not cleared, of the latest month before month;
+        None when there is none."""
+        ...
+
     async def list_created_since(self, user_id: str, since: datetime) -> list[Review]:
         """Return the user's reviews created at or after since, cleared or not, oldest first."""
         ...

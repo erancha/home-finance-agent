@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 import structlog.testing
@@ -20,6 +21,7 @@ from hfm.platform.review_runner import (
     ReviewRunner,
 )
 from hfm.ports import CardAgentClient, TaskFailed
+from tests.builders import make_tx
 from tests.platform.support import (
     CATEGORY_QUESTION,
     COMPLETED,
@@ -411,3 +413,49 @@ async def test_each_fetch_forwards_the_token_of_the_request_that_started_it(
     await run.runner.drain()
 
     assert client.tokens == [DANA_TOKEN, "tok-fresh"]
+
+
+async def test_expected_charges_project_the_latest_earlier_reviews_standing_orders(
+    new_run: NewRun,
+) -> None:
+    gym = make_tx(id="9", raw_merchant="וים קלאבס", category="health", standing_order=True)
+    run = new_run(scripted([batch(GROCERIES, gym), COMPLETED], [batch(GROCERIES), COMPLETED]))
+    await run.runner.start(DANA, OTHER_MONTH, DANA_TOKEN)
+    await run.runner.drain()
+    review_id = await run.runner.start(DANA, MONTH, DANA_TOKEN)
+    await run.runner.drain()
+
+    view = await run.runner.expected(DANA, review_id)
+
+    assert view.based_on == OTHER_MONTH
+    assert [t.id for t in view.transactions] == ["expected-9"]
+    assert {t.category: t.spent for t in view.totals} == {
+        "groceries": GROCERIES.amount, "health": gym.amount,
+    }
+    assert view.standing_orders == gym.amount
+
+
+async def test_expected_charges_without_an_earlier_review_are_the_actual_totals(
+    new_run: NewRun,
+) -> None:
+    run = new_run(scripted([batch(GROCERIES), COMPLETED]))
+    review_id = await run.runner.start(DANA, MONTH, DANA_TOKEN)
+    await run.runner.drain()
+
+    view = await run.runner.expected(DANA, review_id)
+
+    assert view.based_on is None
+    assert view.transactions == []
+    assert view.totals == (await run.runner.status(DANA, review_id)).totals
+    assert view.standing_orders == Decimal(0)
+
+
+async def test_expected_charges_of_a_review_that_is_not_completed_are_refused(
+    new_run: NewRun,
+) -> None:
+    run = new_run(scripted(UNKNOWN_MERCHANT))
+    review_id = await run.runner.start(DANA, MONTH, DANA_TOKEN)
+    await run.runner.drain()
+
+    with pytest.raises(ReviewConflictError, match="not completed"):
+        await run.runner.expected(DANA, review_id)

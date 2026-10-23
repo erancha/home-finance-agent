@@ -145,7 +145,7 @@ status message of two parts: a text part naming the condition in one sentence, a
 ```
 
 The text is for the human: the review shows it in red in its progress, and the question offers
-only the action, the page below and continue, so the text does not say what to do.
+only the action, the page below, continue and skip, so the text does not say what to do.
 
 - `reason`: `statement-missing`.
 - `month`: the billing month, `YYYY-MM`, that no statement covers.
@@ -174,8 +174,8 @@ person's current token and the caller secret as on every call, and one data part
 ```
 
 The agent then either completes the month or asks again, on a stream shaped as above. The home
-finance agent never cancels a task; "skip", offered only when the agent names no page, simply
-stops asking that agent, leaving its task waiting on the agent side.
+finance agent never cancels a task; "skip" simply stops asking that agent, leaving its task
+waiting on the agent side.
 
 ## Authentication
 

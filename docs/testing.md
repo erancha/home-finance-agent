@@ -50,7 +50,8 @@ unless the environment already sets it, before anything imports LangGraph.
 |---|---|
 | `domain/` | The taxonomy is the published list; values keep their identity when recategorized; events and questions render to JSON-safe shapes with the published event names; money text has two decimal places. |
 | `application/test_reconcile.py` | Totals add up in `Decimal` and mark overruns; a remembered category overrides the agent's and counts as sure; uncategorized and `low`-confidence rows are grouped by merchant for questions; the same voucher arriving twice counts once (`test_transactions_reducer_dedupes_by_agent_and_id`); the standing-order spend sums only standing-order rows. |
-| `application/test_questions.py` | Question ids and options; a request with a page links to it on the agent's browser address and offers only `continue`, so `skip` is refused; a `sign-in-required` request offers only `continue` and no link; categorize questions may go unanswered, while an answer set naming an unknown id or leaving out a remote question is rejected with the ids named (`test_validate_answers_rejects_a_missing_remote_answer_and_unknown_ids`), as are bad options and non-string values. |
+| `application/test_expected.py` | A standing order the month has not charged yet from the same agent and merchant is expected at its amount and category, its dates moved forward and clamped to the month's end; an installment expects the payment that many months later while the plan lasts, unless that payment was charged; one-off rows expect nothing; expected spend adds to its category's total and keeps its limit. |
+| `application/test_questions.py` | Question ids and options; a request with a page links to it on the agent's browser address and offers `continue` and `skip`, both accepted; a `sign-in-required` request offers only `continue` and no link; categorize questions may go unanswered, while an answer set naming an unknown id or leaving out a remote question is rejected with the ids named (`test_validate_answers_rejects_a_missing_remote_answer_and_unknown_ids`), as are bad options and non-string values. |
 | `application/test_report.py` | The prompt's table shows spent and limit as whole amounts with thousands separators, as the page does. |
 | `domain/test_merchants.py` | Hebrew and English merchants lose company suffixes and trailing numbers; a key is never empty; a blank merchant is rejected. |
 | `adapters/test_config_files.py` | The registry loads its entries in order; a missing file or `agents: []` means no card agents; a blank or missing field, a URL without an http(s) origin, a name listed twice, and entries that are not mappings are refused naming the entry; a budget category outside the taxonomy fails at load (`test_load_budget_rejects_unknown_category`); the shipped budget loads. |
@@ -67,9 +68,10 @@ unless the environment already sets it, before anything imports LangGraph.
 `adapters/postgres/test_repositories.py` covers review rows, event sequences that never collide
 under concurrent appends, reviews listed by status, a person's month holding one standing review
 until it is cleared while another person reviews the same month independently, a person's reviews
-created since a time listed cleared ones included, merchant memory upserts per person, report
-memory answering a person's own text for each exact prompt, and a written report forgetting the
-person's rows past the retention while another person's stay.
+created since a time listed cleared ones included, the latest completed review of an earlier month
+skipping later, unfinished, cleared and other people's reviews, merchant memory upserts per person,
+report memory answering a person's own text for each exact prompt, and a written report forgetting
+the person's rows past the retention while another person's stay.
 `platform/test_checkpointer.py` round-trips a checkpoint through Postgres with `Decimal` and domain
 values intact, shows the default serializer losing a domain value that the allow-list keeps, and
 reads a checkpoint back after every server connection was terminated, as a database restart does;
@@ -112,6 +114,9 @@ refused with the time the next can start (cleared ones counted), and starts olde
 ignored; and the month view naming the standing review, the starts left and when the next start is
 allowed. Per person: another person's review is not found and their month is free, the daily limit
 counts each person's own starts, and each fetch forwards the token of the request that started it.
+Expected charges project the latest earlier review's standing orders onto a completed review's
+totals, are the actual totals when no earlier month was reviewed, and are refused for a review
+that is not completed.
 `platform/api/test_agents.py` checks that the connected card agents are listed by name in registry
 order, an empty registry lists none, and the route needs a session. `platform/api/test_auth.py`
 checks sign-in: the client id is public, the posted credential becomes an HttpOnly, SameSite=Strict
@@ -119,7 +124,8 @@ cookie lasting as long as the token and Secure over https, a bad credential is 4
 and no cookie, every protected route is 401 without a valid cookie while `/health` stays open, and
 sign-out drops the cookie. `platform/api/test_reviews.py` checks the HTTP codes (202, 404, 409, 422
 with what is wrong, 204, 429 with `Retry-After`), recategorizing, clearing, the 409 naming the
-standing review, the month route and another person's review being 404 included.
+standing review, the month route, the expected route and another person's review being 404
+included.
 `platform/api/test_events.py` checks the stream: a page opened after the review paused still sees
 the question through replay (`test_events_replays_persisted_events_before_tailing`), events racing
 the replay arrive once each, an anonymous subscription is 401, and the stream ends soon after
@@ -152,12 +158,12 @@ stands in for the browser's `EventSource`.
 | `hooks/useReviewEvents.test.ts` | Events accumulate in order with the last event id, each sequence number once; a malformed frame or one without a sequence number is logged, reported as a stream error and skipped; the stream closes on unmount and restarts clean for a new review. |
 | `components/CollapsibleSection.test.tsx` | The heading toggles the body; a section asked to start folded opens on the first click. |
 | `features/review/EventFeed.test.tsx` | Each message starts with its local time; a status without text shows the state alone; an input request's text is shown in red; the last line ends with a spinner while the review is working, and only then. |
-| `features/review/TransactionsSection.test.tsx` | The raw transactions start folded under a heading that counts them, and unfold once when a `low`-confidence row arrives while the review is in progress, staying as the person left them afterwards and folded for a review that already ended; a row repeated across batches shows once; each row shows its details such as its installment, the AI confidence, marked when below high and plain with "(overruled)" once the person chose the category, the statement text as the merchant's tooltip, and the category the totals counted, read-only until the review completes; a category chosen on one row applies to every row of the merchant and is sent once, and kept when the server refuses it; a category chosen in the totals unfolds the section with only its rows; the standing-orders box lists only standing orders; nothing renders before the first row. |
+| `features/review/TransactionsSection.test.tsx` | The raw transactions start folded under a heading that counts them, and unfold once when a `low`-confidence row arrives while the review is in progress, staying as the person left them afterwards and folded for a review that already ended; a row repeated across batches shows once; each row shows its details such as its installment, the AI confidence, marked when below high and plain with "(overruled)" once the person chose the category, the statement text as the merchant's tooltip, and the category the totals counted, read-only until the review completes; a category chosen on one row applies to every row of the merchant and is sent once, and kept when the server refuses it; a category chosen in the totals unfolds the section with only its rows; the standing-orders box lists only standing orders; expected rows alone, as when the only card agent was skipped, are listed unfolded; nothing renders before the first row. |
 | `format.test.ts` | Amounts round to whole units with thousands separators; times show as local `YYYY/MM/DD HH:MM:SS`; text that is not a number or a time is refused. |
 | `features/review/MonthPicker.test.tsx` | The billing month defaults to the current month, also across a year boundary; the field is labelled and described as the month the card is charged; the connected card agents are named; without any, only that fact is shown, with no month to pick; a month without a review offers Start with the starts left, none before the agents or the month were read, and none once the starts are used, naming when the next is allowed; a month with its review offers Clear instead, held while the review runs; a picked month is reported. |
-| `features/review/QuestionCard.test.tsx` | Each merchant lists its rows with date, card, statement text, amount and details; one "continue" button posts the merchants answered plus "continue" to every card agent asking, and is disabled while an answer is in flight; "not sure" drops an answer, offering to keep the card agent's guess; a card agent's "skip" is its own button that posts at once with the categories chosen so far; a question with a link repeats no text, opens the agent's page from a button in a new tab and offers no skip; a `sign-in-required` question shows Google's button, reports the renewed sign-in and offers no skip. |
+| `features/review/QuestionCard.test.tsx` | Each merchant lists its rows with date, card, statement text, amount and details; one "continue" button posts the merchants answered plus "continue" to every card agent asking, and is disabled while an answer is in flight; "not sure" drops an answer, offering to keep the card agent's guess; a card agent's "skip" is its own button that posts at once with the categories chosen so far; a question with a link repeats no text, opens the agent's page from a button in a new tab and offers skip; a `sign-in-required` question shows Google's button, reports the renewed sign-in and offers no skip. |
 | `features/review/TotalsChart.test.tsx` | Each category with spend gets a slice, summarized in text for screen readers and shown with amount and share on hover; the legend runs largest first and marks an overrun, a missing limit and a category without a slice; a month with no spend draws no pie; skipped agents are listed; a slice or legend entry selects its category and the Totals heading selects all; the standing-order spend is shown and selects the standing orders. |
-| `features/review/ReviewPage.test.tsx` | Without a card agent the page says so and offers no start; a review runs from start to totals and report on its events alone, with its raw transactions folded until opened; the started review's month goes into the URL, and a page opened with a month shows that month's review with its waiting question and Clear instead of Start; picking a month without a review hides the review and offers Start; a month that cannot be read is reported; a question posed again before the answer's 204 stays shown; a failure shows once; a malformed frame and a refused answer are shown; choosing a category in the totals lists only its raw transactions and Totals lists all again; choosing the standing orders lists only them until the box is cleared; a completed review recategorizes a merchant from the raw transactions, which stay read-only until the rerun's report arrives; a refused start is shown; Clear review stays disabled while the review runs, then clears it and offers Start again. |
+| `features/review/ReviewPage.test.tsx` | Without a card agent the page says so and offers no start; a review runs from start to totals and report on its events alone, with its raw transactions folded until opened; the started review's month goes into the URL, and a page opened with a month shows that month's review with its waiting question and Clear instead of Start; picking a month without a review hides the review and offers Start; a month that cannot be read is reported; a question posed again before the answer's 204 stays shown; a failure shows once; a malformed frame and a refused answer are shown; choosing a category in the totals lists only its raw transactions and Totals lists all again; choosing the standing orders lists only them until the box is cleared; a completed review recategorizes a merchant from the raw transactions, which stay read-only until the rerun's report arrives; a refused start is shown; Clear review stays disabled while the review runs, then clears it and offers Start again; "Include expected charges" fetches once, adds the expected rows (first, unfolded, marked, not recategorizable) to the raw transactions, the totals and the standing-order spend, dims the report, and toggles back without fetching again, while new totals make it fetch again; a month with no earlier completed review says so; a review that skipped a card agent starts with the box ticked, and unticking it removes the expected rows. |
 
 `scripts/test.sh frontend` also runs `tsc -b`, `oxlint` and `vite build`.
 
@@ -180,13 +186,13 @@ read its event stream, load the missing statement on the agent's page, answer. I
 while the development stack or an earlier `hfm-e2e` stack is up, and removes the project, its
 volume and the folders on every exit.
 
-The script prints one `PASS:` line per check, 21 in all, for a 2026-10 review:
+The script prints one `PASS:` line per check, 20 in all, for a 2026-10 review:
 
 - **Sign-in**: the review API refuses a person who is not signed in; a token signed for the home
   finance agent's client id signs them in and names them.
 - **Missing statement**: exactly one remote-input question; it comes from `amex`; its reason is
-  `statement-missing`; it offers only `continue`; its link opens the agent's statements page; the
-  review is waiting; the answer `skip` is refused; the statements API refuses a person who is not
+  `statement-missing`; it offers `continue` and `skip`; its link opens the agent's statements
+  page; the review is waiting; the statements API refuses a person who is not
   signed in; amex-agent's test statement, uploaded through `POST /api/statements` on the link's
   origin with a token for amex-agent's client id, is stored as `2026-10.pdf` and listed for that
   person; the answer `continue` is accepted.

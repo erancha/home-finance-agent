@@ -31,6 +31,7 @@ describe('TransactionsSection', () => {
     render(
       <TransactionsSection
         events={[batch(row), batch(row, sameMerchant)]}
+        expected={[]}
         totals={null}
         onRecategorize={null}
         category={null}
@@ -58,6 +59,7 @@ describe('TransactionsSection', () => {
     render(
       <TransactionsSection
         events={[batch(installment)]}
+        expected={[]}
         totals={null}
         onRecategorize={null}
         category={null}
@@ -78,6 +80,7 @@ describe('TransactionsSection', () => {
   it('shows the category the totals counted, read-only while the review is not completed', () => {
     render(<TransactionsSection
         events={[batch(row)]}
+        expected={[]}
         totals={totals}
         onRecategorize={null}
         category={null}
@@ -97,6 +100,7 @@ describe('TransactionsSection', () => {
     render(
       <TransactionsSection
         events={[batch(row, sameMerchant)]}
+        expected={[]}
         totals={totals}
         onRecategorize={onRecategorize}
         category={null}
@@ -124,6 +128,7 @@ describe('TransactionsSection', () => {
     render(
       <TransactionsSection
         events={[batch(row, { ...row, id: 't2', merchantKey: 'gett', merchant: 'Gett' })]}
+        expected={[]}
         totals={totals}
         onRecategorize={vi.fn().mockResolvedValue(true)}
         category={null}
@@ -157,6 +162,7 @@ describe('TransactionsSection', () => {
     render(
       <TransactionsSection
         events={[batch(row)]}
+        expected={[]}
         totals={totals}
         onRecategorize={onRecategorize}
         category={null}
@@ -182,6 +188,7 @@ describe('TransactionsSection', () => {
     render(
       <TransactionsSection
         events={[batch(row, sameMerchant, other)]}
+        expected={[]}
         totals={counted}
         onRecategorize={null}
         category="transport"
@@ -203,6 +210,7 @@ describe('TransactionsSection', () => {
     render(
       <TransactionsSection
         events={[batch(row, gym)]}
+        expected={[]}
         totals={null}
         onRecategorize={null}
         category={null}
@@ -223,7 +231,7 @@ describe('TransactionsSection', () => {
 
   it('unfolds once when a low-confidence row arrives while the review is in progress', () => {
     const props = {
-      totals: null, onRecategorize: null, category: null, standingOrders: false,
+      expected: [], totals: null, onRecategorize: null, category: null, standingOrders: false,
       onStandingOrders: vi.fn(), inProgress: true, picks: 0,
     }
     const { rerender } = render(<TransactionsSection events={[batch(row)]} {...props} />)
@@ -251,6 +259,7 @@ describe('TransactionsSection', () => {
     render(
       <TransactionsSection
         events={[batch({ ...row, confidence: 'low' })]}
+        expected={[]}
         totals={null}
         onRecategorize={null}
         category={null}
@@ -269,6 +278,7 @@ describe('TransactionsSection', () => {
     render(
       <TransactionsSection
         events={[batch(unsure)]}
+        expected={[]}
         totals={{ ...totals, chosen: { amex: ['t1'] } }}
         onRecategorize={null}
         category={null}
@@ -282,10 +292,31 @@ describe('TransactionsSection', () => {
     expect(cell).not.toHaveClass('confidence-low')
   })
 
+  it('lists the expected rows of a review whose only card agent was skipped', () => {
+    const gym: Transaction = { ...row, id: 'expected-g1', merchant: 'וים קלאבס', standingOrder: true }
+    render(
+      <TransactionsSection
+        events={[]}
+        expected={[gym]}
+        totals={totals}
+        onRecategorize={vi.fn()}
+        category={null}
+        standingOrders={false}
+        onStandingOrders={vi.fn()}
+        inProgress={false}
+        picks={0}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Raw transactions (1)' }))
+      .toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('וים קלאבס').closest('tr')).toHaveClass('expected')
+  })
+
   it('renders nothing before any row arrives', () => {
     const { container } = render(
       <TransactionsSection
         events={[]}
+        expected={[]}
         totals={null}
         onRecategorize={null}
         category={null}

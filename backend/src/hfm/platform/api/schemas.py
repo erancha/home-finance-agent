@@ -6,9 +6,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from hfm.domain.events import total_to_dict
+from hfm.domain.events import money_text, row_categories, total_to_dict, transaction_to_dict
 from hfm.domain.models import ReviewStatus
-from hfm.platform.review_runner import MonthView, ReviewView
+from hfm.platform.review_runner import ExpectedView, MonthView, ReviewView
 
 MONTH_PATTERN = r"^\d{4}-(0[1-9]|1[0-2])$"
 
@@ -52,6 +52,28 @@ class ReviewResponse(BaseModel):
             totals=[total_to_dict(t) for t in view.totals],
             skipped=view.skipped,
             report=view.report,
+        )
+
+
+class ExpectedResponse(BaseModel):
+    """The expected rows' categories and chosen ids are shaped as in review.totals, so the page
+    marks expected rows as it marks charged ones."""
+
+    based_on: str | None = Field(serialization_alias="basedOn")
+    transactions: list[dict[str, Any]]
+    categories: dict[str, dict[str, str]]
+    chosen: dict[str, list[str]]
+    totals: list[dict[str, Any]]
+    standing_orders: str = Field(serialization_alias="standingOrders")
+
+    @classmethod
+    def from_view(cls, view: ExpectedView) -> ExpectedResponse:
+        return cls(
+            based_on=view.based_on,
+            transactions=[transaction_to_dict(t) for t in view.transactions],
+            **row_categories(view.transactions),
+            totals=[total_to_dict(t) for t in view.totals],
+            standing_orders=money_text(view.standing_orders),
         )
 
 

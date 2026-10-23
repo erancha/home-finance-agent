@@ -1,10 +1,11 @@
 """Starts review graphs, resumes them with validated answers and reports their state.
 
 Core building blocks:
-- ReviewRunner: start, answer, recategorize, clear, status and month for the API, each on behalf of
-  the signed-in person; every graph invocation runs as a background task so a request returns as
-  soon as the review is recorded
+- ReviewRunner: start, answer, recategorize, clear, status, expected and month for the API, each on
+  behalf of the signed-in person; every graph invocation runs as a background task so a request
+  returns as soon as the review is recorded
 - ReviewView: a review's record joined with what its checkpoint knows (questions, totals, report)
+- ExpectedView: a completed review's totals with the charges it still expects added
 - MonthView: whether a month has a standing review and whether a review may start now
 - ReviewNotFoundError, ReviewConflictError, MonthReviewedError, DailyLimitError: the refusals the
   API maps to 404, 409, 409 and 429; a conflict is a review whose status does not allow the request
@@ -32,6 +33,7 @@ from collections.abc import Mapping
 from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 import structlog
@@ -40,12 +42,14 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from hfm.application.event_sink import ReviewEventSink
+from hfm.application.expected import expected_charges, with_expected
 from hfm.application.questions import validate_answers, validate_categories
+from hfm.application.reconcile import standing_orders
 from hfm.application.review_graph import ReviewState
 from hfm.application.user_token import with_user_token
 from hfm.domain.errors import ReviewError
 from hfm.domain.events import REVIEW_FAILED, ReviewEvent
-from hfm.domain.models import CategoryTotal, Review, ReviewStatus, User
+from hfm.domain.models import CategoryTotal, Review, ReviewStatus, Transaction, User
 from hfm.ports import ReviewRepository
 
 log = structlog.get_logger(__name__)
@@ -103,6 +107,18 @@ class ReviewView:
     skipped: list[str]
     """Agents the user chose to leave out; the totals lack their spend."""
     report: str | None
+
+
+@dataclass(frozen=True)
+class ExpectedView:
+    based_on: str | None
+    """The month the expected charges are projected from; None when no earlier month has a
+    completed review, and then nothing is expected."""
+    transactions: list[Transaction]
+    totals: list[CategoryTotal]
+    """The review's totals with the expected spend added."""
+    standing_orders: Decimal
+    """The review's standing-order spend with the expected standing orders added."""
 
 
 @dataclass(frozen=True)
@@ -240,6 +256,28 @@ class ReviewRunner:
             totals=values.get("totals", []),
             skipped=list(values.get("skipped", {})),
             report=values.get("report"),
+        )
+
+    async def expected(self, user: User, review_id: str) -> ExpectedView:
+        """The completed review's charges still expected from the person's latest completed review
+        of an earlier month; reads only saved reviews and reaches no card agent."""
+        review = await self.review(user, review_id)
+        if review.status != ReviewStatus.COMPLETED:
+            raise ReviewConflictError(review_id, review.status, "not completed")
+        values = (await self._graph.aget_state(_config(review_id))).values
+        actual: list[Transaction] = values["transactions"]
+        base = await self._reviews.latest_completed_before(user.id, review.month)
+        expected: list[Transaction] = []
+        if base is not None:
+            base_values = (await self._graph.aget_state(_config(base.id))).values
+            expected = expected_charges(
+                base_values["transactions"], base.month, actual, review.month
+            )
+        return ExpectedView(
+            based_on=None if base is None else base.month,
+            transactions=expected,
+            totals=with_expected(values["totals"], expected),
+            standing_orders=standing_orders([*actual, *expected]),
         )
 
     async def fail_interrupted(self) -> None:

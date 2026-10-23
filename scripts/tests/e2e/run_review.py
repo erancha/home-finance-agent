@@ -8,9 +8,9 @@ statements page. Without the first the review API answers 401; without the secon
 API does.
 
 amex-agent starts with an empty statements folder, so the October review first pauses on its
-request for the missing statement: a question that links to the agent's statements page and
-offers only "continue". The script loads amex-agent's test statement through that page's API, as
-the page would, into the person's own folder, and continues. The review must then pause on one
+request for the missing statement: a question that links to the agent's statements page and offers
+"continue" and "skip". The script loads amex-agent's test statement through that page's API, as the
+page would, into the person's own folder, and continues. The review must then pause on one
 categorize question for the gym, the one merchant the agent's keyword categorizer does not know;
 answered "health", it must finish with totals and a report. Each check prints a PASS: line; the
 first failure prints the frames seen so far and exits 1.
@@ -193,7 +193,9 @@ def load_missing_statement(review: ReviewSession, statement: Path, amex_token: s
     question = single_question(review.read_until("review.question"), "remote-input")
     check(question["agent"] == "amex", "the statement request comes from amex", question)
     check(question["reason"] == "statement-missing", "the request is for the statement", question)
-    check(question["actions"] == ["continue"], "the request offers only continue", question)
+    check(
+        question["actions"] == ["continue", "skip"], "the request offers continue and skip", question
+    )
     link = question["link"]
     page = httpx.get(link)
     check(
@@ -203,8 +205,6 @@ def load_missing_statement(review: ReviewSession, statement: Path, amex_token: s
     )
     review.wait_until_waiting()
     print("PASS: the review is waiting for answers")
-    review.answer({question["id"]: "skip"}, expected=422)
-    print("PASS: the answer skip is refused")
     statements_api = urljoin(link, STATEMENTS_API)
     anonymous = httpx.get(statements_api)
     check(anonymous.status_code == 401, "the statements API refuses a person who is not signed in",

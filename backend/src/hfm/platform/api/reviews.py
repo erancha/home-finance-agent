@@ -1,6 +1,7 @@
 """REST routes that start reviews, report their state, accept answers to their questions,
-recategorize the merchants of a completed review, clear a review to free its month, and say whether
-a month has a review and whether one may start; every one of them for the signed-in person."""
+recategorize the merchants of a completed review, project the charges a completed review still
+expects, clear a review to free its month, and say whether a month has a review and whether one may
+start; every one of them for the signed-in person."""
 from __future__ import annotations
 
 import math
@@ -17,6 +18,7 @@ from hfm.platform.api.schemas import (
     MONTH_PATTERN,
     AnswersRequest,
     CategoriesRequest,
+    ExpectedResponse,
     MonthResponse,
     ReviewResponse,
     StartReviewRequest,
@@ -60,6 +62,13 @@ async def recategorize_review(
 ) -> Response:
     await runner.recategorize(session.user, review_id, body.categories)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{review_id}/expected")
+async def expected_charges(
+    review_id: str, runner: Runner, session: CurrentSession
+) -> ExpectedResponse:
+    return ExpectedResponse.from_view(await runner.expected(session.user, review_id))
 
 
 @router.delete("/{review_id}", status_code=status.HTTP_204_NO_CONTENT)

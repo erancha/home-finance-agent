@@ -91,6 +91,17 @@ class InMemoryReviewRepository:
         assert len(standing) <= 1, f"{month} has {len(standing)} standing reviews for {user_id}"
         return standing[0] if standing else None
 
+    async def latest_completed_before(self, user_id: str, month: str) -> Review | None:
+        earlier = [
+            review
+            for review in self._reviews.values()
+            if review.user_id == user_id
+            and review.month < month
+            and review.status == ReviewStatus.COMPLETED
+            and review.cleared_at is None
+        ]
+        return max(earlier, key=lambda review: review.month, default=None)
+
     async def list_created_since(self, user_id: str, since: datetime) -> list[Review]:
         recent = [
             review

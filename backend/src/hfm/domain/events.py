@@ -1,6 +1,7 @@
 """Progress events streamed to the UI while a review runs."""
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
@@ -54,6 +55,19 @@ def transaction_to_dict(t: Transaction) -> dict[str, Any]:
         "category": t.category,
         "confidence": t.confidence,
     }
+
+
+def row_categories(transactions: Iterable[Transaction]) -> dict[str, Any]:
+    """The wire form of each row's counted category ("categories": agent to row id to category)
+    and of the rows whose category the person chose ("chosen": agent to row ids); the page reads
+    a row's category and its "overruled" mark from these, not from the row."""
+    categories: dict[str, dict[str, str]] = {}
+    chosen: dict[str, list[str]] = {}
+    for t in transactions:
+        categories.setdefault(t.agent, {})[t.id] = t.category
+        if t.chosen:
+            chosen.setdefault(t.agent, []).append(t.id)
+    return {"categories": categories, "chosen": chosen}
 
 
 def total_to_dict(t: CategoryTotal) -> dict[str, Any]:

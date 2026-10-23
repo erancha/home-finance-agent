@@ -98,12 +98,12 @@ describe('QuestionCard', () => {
     expect(screen.getByRole('option', { name: 'Not sure: keep groceries' })).toBeInTheDocument()
   })
 
-  it('offers a statement request only its page, as a button in a new tab, and continue', async () => {
+  it('offers a statement request its page, as a button in a new tab, continue and skip', async () => {
     const user = userEvent.setup()
     const onSubmit = vi.fn()
     const linked: Question = {
       ...remote, text: 'No statement covers 2026-10.', reason: 'statement-missing',
-      link: 'http://localhost:8020/statements.html', actions: ['continue'],
+      link: 'http://localhost:8020/statements.html', actions: ['continue', 'skip'],
     }
     render(<QuestionCard questions={[linked]} submitting={false} onSubmit={onSubmit} />)
 
@@ -113,7 +113,7 @@ describe('QuestionCard', () => {
     expect(link).toHaveAttribute('target', '_blank')
     expect(link).toHaveAttribute('rel', 'noopener noreferrer')
     expect(link).toHaveClass('button', 'prerequisite')
-    expect(screen.queryByRole('button', { name: 'skip amex' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'skip amex' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'continue' }))
     expect(onSubmit).toHaveBeenCalledExactlyOnceWith({ 'remote:amex': 'continue' })
