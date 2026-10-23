@@ -379,10 +379,12 @@ image's own user `hfm` serves the migration run.
 **The edge and the replicas.** In Docker the browser never reaches the manager directly: an nginx
 service, `edge`, is the only one that publishes port 8010, and `nginx/default.conf` proxies every
 request to the manager service by name, which resolves to each of its replicas (`deploy: replicas`
-in compose), so requests of one review spread over all of them. nginx resolves that name once, when
-it starts, so a stack scaled while running (`compose up -d --scale manager=N`, from a shell that
-sourced `scripts/common.sh` and ran `load_env`) needs `compose restart edge` to put the new replicas
-in rotation; the next `start.sh` returns to the count in the file. The `redis` service joins their
+in compose), so requests of one review spread over all of them. nginx re-resolves that name through
+Docker's DNS every five seconds (`resolver` and `resolve` in `nginx/default.conf`), so a stack
+scaled while running (`compose up -d --scale manager=N`, from a shell that sourced
+`scripts/common.sh` and ran `load_env`) puts the new replicas in rotation by itself, and replicas
+recreated by a redeploy take traffic without an edge restart; the next `start.sh` returns to the
+count in the file. The `redis` service joins their
 live events (`REDIS_URL` in compose) and publishes no port; the operating conditions above apply.
 The event stream passes through it unbuffered because the response carries `X-Accel-Buffering: no`,
 and its keep-alive comment every 15 seconds stays inside nginx's default 60-second read timeout.
