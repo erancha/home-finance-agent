@@ -30,7 +30,7 @@ def setup_checkpoint_tables(dsn: str) -> None:
     a migration is applied by the next run with no Alembic revision. Autocommit because the
     saver's index migrations run CONCURRENTLY, which Postgres refuses inside a transaction.
     """
-    with Connection.connect(dsn, autocommit=True) as conn:
+    with Connection.connect(dsn, autocommit=True, row_factory=dict_row) as conn:
         PostgresSaver(conn).setup()
 
 
