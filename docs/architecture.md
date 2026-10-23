@@ -384,7 +384,9 @@ Docker's DNS every five seconds (`resolver` and `resolve` in `nginx/default.conf
 scaled while running (`compose up -d --scale manager=N`, from a shell that sourced
 `scripts/common.sh` and ran `load_env`) puts the new replicas in rotation by itself, and replicas
 recreated by a redeploy take traffic without an edge restart; the next `start.sh` returns to the
-count in the file. The `redis` service joins their
+count in the file. Each line of the edge's access log ends with the replica that served the
+request (`docker-helper.sh --logs edge`), so the spread needs no agent-side access logging. The
+`redis` service joins their
 live events (`REDIS_URL` in compose) and publishes no port; the operating conditions above apply.
 The event stream passes through it unbuffered because the response carries `X-Accel-Buffering: no`,
 and its keep-alive comment every 15 seconds stays inside nginx's default 60-second read timeout.
