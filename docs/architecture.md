@@ -6,10 +6,10 @@ part is tested is in [testing.md](testing.md).
 
 ## Sign-in
 
-People sign in with their Google account; there is no other way in. The React page in the
-browser keeps the person's Google ID token in a cookie that the FastAPI backend verifies on
-every request; inside the backend, the token reaches the card-agent call through a context
-variable, never through the graph state, so no checkpoint holds it. [sign-in.md](sign-in.md)
+People sign in with their Google account; there is no other way in. The React page keeps the
+person's Google ID token in a cookie the backend verifies on every request, and the token is
+forwarded to each card agent, which verifies it again, so every agent knows whose data it serves. No
+checkpoint ever holds the token. [sign-in.md](sign-in.md)
 
 ## Reviews
 
@@ -34,9 +34,9 @@ one Redis, and any replica can serve any request. Two concerns follow, each a Gi
 
 ## Storage
 
-One Postgres database holds the reviews, their event logs, the person's merchant memory, their
-report memory and LangGraph's checkpoints, all created by the migration run. Merchant memory
-outlives a review; report memory lets a repeated prompt cost no model call.
+One Postgres database holds the reviews, their event logs, LangGraph's checkpoints and two memories
+per person: the categories they chose for merchants, which outrank any card agent's in later
+reviews, and the reports already written, so the same totals cost no second model call.
 [architecture/storage.md](architecture/storage.md)
 
 ## Configuration

@@ -13,11 +13,12 @@ and where its use here is thinner than the word "agent" suggests. The contract i
 ## The card agent is mostly a service
 
 A card agent receives one thing, the billing month, and returns one thing, a table of charges in a
-fixed shape with a fixed list of categories. Neither side writes to the other in plain language.
-The home finance agent never picks between skills, never cancels, and is the card agent's only
-caller. The one place a language model runs on the card side is deciding each merchant's category,
-and the home finance agent sees only the result: a category and how sure the card agent is. On the
-home finance side the review follows a fixed plan in code, and a model writes only the summary.
+fixed shape with a fixed list of categories. Neither side writes to the other in plain language. The
+home finance agent never picks between skills, never cancels, and in this demo is the card agent's
+only caller. The one place a language model runs on the card side is deciding each merchant's
+category, and the home finance agent sees only the result: a category and how sure the card agent
+is. On the home finance side the review follows a fixed plan in code, and a model writes only the
+summary.
 
 A2A is built for open-ended conversation between agents. Here it carries a fixed question with a
 fixed answer. That is a fair use of the protocol, but it is a contract between a planning program
@@ -57,7 +58,7 @@ Three things visible in the code, not hypothetical:
   not the `final` flag beside it. A home-grown format would never be tested against a second
   implementation.
 - **One vocabulary.** Working, input required, auth required, completed, failed and canceled
-  already mean the same thing to both agents and to the page.
+  already mean the same thing to both agents and to the review page in the browser.
 
 ## What would make the agents reason at each other
 

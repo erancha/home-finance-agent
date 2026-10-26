@@ -1,7 +1,9 @@
 # Storage
 
-One Postgres database (`postgres:16` in compose, published on `127.0.0.1:5434`) holds two groups
-of tables: this agent's own, and LangGraph's checkpoints.
+One Postgres database holds everything the home finance agent keeps: its own tables, and
+LangGraph's checkpoints of each review's graph. Reviews and both memories carry the person's
+Google account id, and events and checkpoints hang off a review, so each person's data is kept
+apart by that one id.
 
 ## This agent's tables
 
@@ -39,12 +41,10 @@ erDiagram
   reviews ||--o{ review_events : "logs"
 ```
 
-Created by the Alembic migrations in `backend/alembic/versions/`, which also move remembered
-categories onto the current category list. Only `review_events` has a foreign key: a review's
-events, keyed by the review id and a per-review sequence number. The two memories belong **to a
-person**, not to a review: they are keyed by **`user_id`**, which every table here carries, so each
-person's data is kept apart by the same column everywhere. `reviews` keeps one standing review
-per person and month (the partial unique index on `cleared_at IS NULL`).
+The migrations create these tables and move remembered categories onto the current category
+list. A review's events are keyed by the review and a per-review sequence number. The two memories
+belong to a person, not to a review, so they outlive the review that wrote them. A unique index
+keeps one standing review per person and month.
 
 ## LangGraph's checkpoints
 
@@ -77,31 +77,24 @@ erDiagram
   checkpoints ||..o{ checkpoint_writes : "checkpoint id"
 ```
 
-The checkpointer's own schema, the same in any LangGraph app on Postgres. The tables are created,
-or brought to the installed library's version, by the saver's own setup at the end of every
-migration run (`backend/alembic/env.py`), never by the app. This agent's one convention is that
-`thread_id` is the review id, so a review's saved state is found by `reviews.id` without a foreign
-key, and the review's owner is the `reviews` row's `user_id`.
+This is LangGraph's own schema, the same in any LangGraph app on Postgres. The migration run creates
+it, never the agent at startup, so replicas booting together do not race to create it. The thread
+id is the review id, so a review's saved state, and through the review row its owner, is found
+without a foreign key.
 
 ## The two memories
 
-A person's merchant memory is shared by all their reviews and kept until changed, so a second
-review of the same month asks nothing; the end-to-end test therefore runs on a fresh database. A
-person's report memory holds each report prompt of their recent reviews with the text it got. The
-prompt is everything the model sees, so a review whose totals, skipped agents and transaction
-count match a remembered one, a repeated start of the month or a category change undone, shows
-that text without a model call, and a prompt not held, a changed number or changed wording in
-code, has the model write a text that is remembered beside the others. A row is written once and
-never changed, since it can describe no other facts than its prompt holds. Writing a person's
-report forgets their rows older than `REPORT_MEMORY_RETENTION_DAYS`, so reading costs no write
-and the rows a person keeps are those of the window.
+**Merchant memory** holds the category a person chose for a merchant, and it outranks any card
+agent's category in every later review. A second review of the same month therefore asks nothing,
+which is why the end-to-end test needs a fresh database. Merchants are matched by a key of the
+home finance agent's own: the merchant text in lower case, without company suffixes or trailing
+numbers, so no card agent has to share the rule.
 
-The merchant key is the normalised merchant text (`domain/merchants.py`): lower case, spaces
-collapsed, company suffixes and trailing number groups dropped. The rule is the home finance
-agent's own; no card agent needs to share it.
+**Report memory** holds each report prompt of a person's recent reviews with the text the model
+wrote for it. The prompt is everything the model sees, so a review with the same totals, such as a
+repeated start or a category change undone, shows the remembered text without a model call. A
+changed number or a changed prompt in code gets a new text. Rows older than the retention period
+are forgotten when the person's next report is written.
 
-## Connections
-
-The checkpointer and the repositories each draw connections from a pool that tests a connection
-before handing it out, so a database restart fails only the requests in flight at that moment;
-the home finance agent itself needs no restart.
+**Connections** are checked before use, so a database restart fails only the requests in flight
+at that moment and the agent itself needs no restart.

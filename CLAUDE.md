@@ -16,7 +16,7 @@ Package `hfm` in `backend/src`: `platform → application → ports → domain`;
 
 - `./scripts/init-env.sh [--force]`: create `backend/.env` and an empty `backend/card-agents.yaml`.
 - `./scripts/add-card-agent.sh --name N --url U --browser-url B --secret S`: connect a card agent;
-  the manager reads the registry at startup.
+  the agent reads the registry at startup.
 - `./scripts/start.sh [--host]`: run db, redis, migrations and the agent replicas behind the
   edge; the page is http://localhost:8010, Postgres 127.0.0.1:5434. Ends by printing the Google
   client id a card agent registers this agent with.

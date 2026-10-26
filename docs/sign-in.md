@@ -5,8 +5,7 @@ and there is no other way in. Every piece of data belongs to the person who sign
 trust each other through one explicit step: the home finance agent is registered with each card
 agent as a caller. "The card agent" below is any card agent the home finance agent calls; the demo
 has one, amex-agent. This page explains how that works and how to set up the Google side; the
-message details are in [a2a-contract.md](a2a-contract.md), the code under
-[Where it lives in the code](#where-it-lives-in-the-code).
+message details are in [a2a-contract.md](a2a-contract.md).
 
 **Contents:** [The design in six points](#the-design-in-six-points) ·
 [Setting up Google](#setting-up-google) ·
@@ -107,8 +106,8 @@ is the user id in both agents. No registration step, no stored passwords.
 
 **² Every token is verified locally, the same way everywhere.** Both agents fetch and cache the
 public keys Google publishes and check each token's signature, issuer, expiry and audience. The
-audience names the client the token was issued to; a page accepts only its own client id. A
-Google ID token lives about an hour; when it expires, the next request answers 401 and the page
+audience names the client the token was issued to; a page accepts only its own client id. A Google
+ID token lives about an hour; when it expires, the next request answers 401 and that agent's page
 shows the sign-in button again. There are no refresh tokens and no server-side sessions.
 
 **³ An A2A call carries two things.** The shared secret, under the header `X-Caller-Secret`, proves
@@ -126,7 +125,7 @@ client id is public. The hand-over to this side, and `add-card-agent.sh` recordi
 
 **⁵ A missing, bad or expired token** is answered with the A2A auth-required task state. The home
 finance agent treats it as one more pause: the review waits on a "sign in again and continue"
-question, the page shows the Google button inline, and the continue forwards the fresh token.
+question, the review page shows the Google button inline, and the continue forwards the fresh token.
 
 **⁶ Data is keyed by user.** In the home finance agent: reviews, review events, checkpoints,
 merchant memory, and the live event stream, where a person may subscribe only to their own review.
@@ -188,27 +187,13 @@ guarantee that matters at this scale. Everything else in this document would sta
 
 ## Where it lives in the code
 
-- `adapters/google_tokens.py` implements the `TokenVerifier` port on PyJWT: RS256 signature against
-  the keys at `AUTH_JWKS_URL` (cached), issuer `AUTH_ISSUER` (Google's bare `accounts.google.com`
-  form accepted for Google's issuer only), expiry, and audience equal to `GOOGLE_CLIENT_ID`. With
-  `AUTH_PUBLIC_KEY_FILE` set, that PEM key replaces the JWKS fetch; the end-to-end test and the
-  platform tests sign their own tokens that way and never reach Google.
-- `platform/api/auth.py`: `POST /api/auth/session` verifies the credential Google's button handed
-  the page and sets it as the cookie `hfm_id_token`, HttpOnly, SameSite=Strict, Secure over https,
-  expiring with the token. Every review and month route and the event stream take `CurrentSession`,
-  which verifies the cookie again on each request and answers 401 with the reason otherwise; the
-  cookie, rather than a header, because the browser's event-stream object cannot send headers.
-  `GET /api/auth/me` names the person, `DELETE /api/auth/session` signs out, `GET /api/auth/config`
-  publishes the client id. Nothing is stored server side.
-- The person's token reaches the card-agent fetch through `application/user_token.py`, a context
-  variable the runner sets around each graph invocation. It is never in the graph state or the run
-  configuration, so no checkpoint or checkpoint metadata holds it; the graph test that searches
-  every stored blob for the agent secret searches for the user token too. The state does carry the
-  person's id, which the merchant memory is keyed by.
-- `adapters/a2a_client.py` sends, per call, `Authorization: Bearer <the token>` and the caller
-  secret under the header the agent card's API key scheme names, and requires the card to ask for
-  both together. The auth-required task state becomes a `sign-in-required` pause.
-- The page (`frontend/src/auth/`) loads Google's sign-in script, posts the credential, shows the
-  person's email (their name, or their id, when Google sends none) with a Sign out button, and drops
-  back to the button on any 401, keeping the month in the URL. A `sign-in-required` question shows
-  the button inline before its continue.
+- **Token verification** is one adapter behind a port, used for the page's cookie and nowhere else;
+  tests swap Google's keys for their own through a setting.
+- **The session** is the verified Google ID token in an HttpOnly, SameSite=Strict cookie, checked
+  again on every request. A cookie rather than a header, because the browser's event-stream object
+  cannot send headers. Nothing is stored server side.
+- **The person's token reaches the card-agent call** through a context variable the runner sets
+  around each graph run, never through the graph state, so no checkpoint holds it. A test searches
+  every stored checkpoint for it.
+- **The A2A client** sends the bearer token and the caller secret on every call, and turns the
+  auth-required state into a "sign in again and continue" question.

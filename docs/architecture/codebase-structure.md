@@ -12,10 +12,9 @@ One package, `hfm`, under `backend/src`, in five layers:
 
 Imports point inwards only. `platform` may use everything; `application` uses `ports` and
 `domain`; `ports` uses `domain`; `adapters` use `ports` and `domain` and never `application` or
-`platform`. `domain`, `ports` and `application` import no framework: no a2a-sdk, FastAPI,
-Starlette, SQLAlchemy, psycopg, LangChain, httpx, PyYAML or structlog. The one exception is
-LangGraph, which only `application.review_graph` may import, because the graph is the review's
-orchestration.
+`platform`. `domain`, `ports` and `application` import no framework, so the review's rules can be
+tested on plain values and fakes. The one exception is LangGraph, which only the review graph may
+import, because the graph is the review's orchestration.
 
-These rules are four import-linter contracts in `backend/pyproject.toml`. `lint-imports` checks
-them in `scripts/test.sh backend`, and `tests/test_architecture.py` runs it again inside pytest.
+These rules are import-linter contracts in `backend/pyproject.toml`, checked on every backend test
+run.

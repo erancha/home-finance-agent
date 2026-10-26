@@ -2,8 +2,8 @@
 
 This page is the contract every card agent offers the home finance agent, and the source of truth
 for it: a card agent that meets it is connected with `add-card-agent.sh` and no code change here.
-The home finance agent's client, `backend/src/hfm/adapters/a2a_client.py`, enforces each point
-below, so a change on either side is checked against this list. amex-agent, the demo's card
+The home finance agent's A2A client enforces each point below, so a change on either side is
+checked against this list. amex-agent, the demo's card
 agent, documents how it implements the contract in its own repo
 ([amex-agent/docs/a2a-contract.md](https://github.com/erancha/amex-agent/blob/main/docs/a2a-contract.md)).
 
@@ -61,7 +61,7 @@ month.
 A covered month produces, on one stream, status updates and then the rows:
 
 - A status update (or a task snapshot's status) becomes `agent.status` with the state name and the
-  status message's text, shown live on the page.
+  status message's text, shown live on the home finance agent's review page.
 - Each artifact data part is one batch of up to 25 rows, in the shape under
   [Transaction rows](#transaction-rows); all batches of a task share one `artifactId`. A snapshot's
   artifacts count like streamed ones. A statement with no rows still sends one batch with an empty
@@ -120,7 +120,7 @@ Each artifact data part:
 
 The client reads every field of every row; a missing field, a category outside the taxonomy or
 a confidence outside the three values fails the fetch. Amounts become `Decimal` through their
-shortest text form and installment numbers become integers. Rows with `low` confidence or category
+shortest text form, so no binary rounding reaches the totals. Rows with `low` confidence or category
 `uncategorized` become questions for the person; unanswered, they keep the agent's category, so a
 `low` row should carry the agent's best guess.
 
@@ -131,8 +131,7 @@ Fixed, shared by every card agent, and listed in each agent's skill description:
 `groceries`, `dining`, `transport`, `utilities`, `housing`, `health`, `insurance`, `education`,
 `shopping`, `entertainment`, `travel`, `gifts`, `other`, `uncategorized`.
 
-The home finance agent's copy is `backend/src/hfm/domain/taxonomy.py`; a value outside it fails
-the fetch.
+A value outside the list fails the fetch.
 
 ## Input required and continue
 

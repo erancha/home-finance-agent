@@ -39,8 +39,9 @@ card agent's hostname when it runs elsewhere.
 5. `./scripts/add-card-agent.sh --name <name> --url <url> --browser-url <browser url> --secret
    <secret>`, with the values from B. This writes `backend/card-agents.yaml`; `backend/.env` is
    untouched.
-6. `./scripts/start.sh` again. Compose recreates the manager with the registry; the database and
-   its reviews stay. The page reads "Registered card agents: <name>" and offers a review.
+6. `./scripts/start.sh` again. Compose recreates the agent's replicas with the registry; the
+   database and its reviews stay. The page reads "Registered card agents: <name>" and offers a
+   review.
 7. Start a review. Before any statement is loaded it pauses with a link to the card agent's
    statements page: sign in there with the same Google account, load the month's statement, come
    back and press "continue". What the page says when something is off:
