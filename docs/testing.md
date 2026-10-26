@@ -39,7 +39,7 @@ import (`tests/auth_keys.py`) and verify them through the same code path with th
 - `ruff check src tests` (100-character lines);
 - `mypy` over `src`;
 - `lint-imports`: the four layer contracts of `backend/pyproject.toml` (see
-  [architecture.md](architecture.md#layers)).
+  [architecture/codebase-structure.md](architecture/codebase-structure.md)).
 
 **pytest** then runs everything under `backend/tests`, laid out like `src`. `tests/fakes.py` holds
 in-memory implementations of every port, and `tests/test_fakes.py` proves they satisfy their

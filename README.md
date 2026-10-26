@@ -2,12 +2,12 @@
 
 [![CI](https://github.com/erancha/home-finance-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/erancha/home-finance-agent/actions/workflows/ci.yml)
 
-The home finance agent reviews a household's monthly card spending. It asks each card's service,
-over the open [A2A (Agent2Agent) protocol](https://a2a-protocol.org), for the month's charges,
-adds them up against a budget, asks you only what it cannot decide, and writes a short summary.
-This demo has one card service, [amex-agent](https://github.com/erancha/amex-agent), for an
-American Express card. You sign in to both with your Google account; each person sees only their
-own reviews and statements.
+The home finance agent is a multi-user, scalable AI agent that reviews a household member's monthly
+card spending. It asks each card's service, over the open
+[A2A (Agent2Agent) protocol](https://a2a-protocol.org), for the month's charges, adds them up
+against a budget, asks you only what it cannot decide, and writes a short summary. This demo has one
+card service, [amex-agent](https://github.com/erancha/amex-agent), for an American Express card. You
+sign in to both with your Google account; each person sees only their own reviews and statements.
 
 A2A calls every party in the conversation an agent, and these docs follow its naming (card agent,
 home finance agent). The review itself follows a fixed plan written in code, with you in the loop
@@ -15,25 +15,49 @@ for what it cannot decide; a language model writes only the summary. In fairness
 closer to a service than to an agent, and much of the exchange would fit plain HTTP streaming;
 [docs/why-a2a.md](docs/why-a2a.md) says what the protocol does and does not add here.
 
-**Contents:** [Boundaries](#boundaries) · [How a review runs](#how-a-review-runs) ·
-[Getting started](#getting-started) · [Sign-in](#sign-in) · [Scripts](#scripts) ·
-[Testing](#testing) · [Architecture](#architecture) · [License](#license)
+**Contents:** [Architecture](#architecture) · [How a review runs](#how-a-review-runs) ·
+[Boundaries](#boundaries) · [Getting started](#getting-started) · [Scripts](#scripts) ·
+[Testing](#testing) · [License](#license)
 
-## Boundaries
+## Architecture
 
-- **The contract is shared, not per agent.** Every card agent offers the same A2A skill,
-  `monthly-transactions`: a billing month in, rows out in one format (ISO dates, amounts in
-  shekels, one category from a closed list), or a request for the missing statement.
-  [docs/a2a-contract.md](docs/a2a-contract.md) is that contract; a card agent documents how it
-  implements it in its own repo.
-- **Each card agent normalizes and categorizes its own card.** Statement formats, card-specific
-  labels, installments and foreign purchases never reach the home finance agent. Rows arrive in
-  the shared format, each placed in a category by the card agent with its confidence, `high`,
-  `medium` or `low`, or `uncategorized` when it cannot tell.
-- **The home finance agent normalizes nothing card-specific.** Adding a card means running its
-  agent and connecting it with `add-card-agent.sh`, with no code change here. This agent owns what
-  spans cards: your categories, which outrank any card agent's, the budget, the totals and the
-  summary.
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 520}}}%%
+flowchart LR
+  U((You)) -->|Sign in with Google| P
+  subgraph HFA[Home finance agent  - this repo]
+    direction LR
+    P[React page] -->|REST + SSE| M[FastAPI]
+    M --> G[Review graph]
+    G --> DB[(Postgres: checkpoints, events, memory, per person)]
+    G -->|numbers in, prose out| L["<b>LLM (Language Model)</b><br/>writes the report"]
+  end
+  subgraph CARDS[Card agents]
+    A["amex-agent  - the demo's card agent, for American Express Israel cardholders; a separate GitHub repo, simulating another operator"]
+  end
+  G -->|A2A monthly-transactions<br/>your token + caller secret| A
+  classDef user fill:#f3f4f6,stroke:#4b5563,color:#111827
+  classDef hfa fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  classDef amx fill:#dcfce7,stroke:#15803d,color:#111827
+  classDef llm fill:#ede9fe,stroke:#6d28d9,color:#111827
+  class U user
+  class P,M,G,DB hfa
+  class L llm
+  class A amx
+  style HFA fill:#eff6ff,stroke:#1d4ed8
+  style CARDS fill:#f0fdf4,stroke:#15803d
+```
+
+A review of one month runs in the Review graph box above: a small state machine that pauses when
+it has a question for you and resumes with your answer. Its state lives in Postgres, so a question
+waits as long as it takes, across restarts. The home finance agent is the A2A client of one card
+agent per card issuer, all offering the same contract, and each card agent is opaque to it beyond
+that contract. Details and the reasoning behind them:
+[docs/architecture.md](docs/architecture.md); the contract every card agent offers:
+[docs/a2a-contract.md](docs/a2a-contract.md); how sign-in spans the agents:
+[docs/sign-in.md](docs/sign-in.md).
+
+**Stack:** Python, FastAPI, LangGraph, Postgres, a2a-sdk, React, Docker.
 
 ## How a review runs
 
@@ -42,9 +66,9 @@ closer to a service than to an agent, and much of the exchange would fit plain H
 2. The home finance agent reads each card agent's Agent Card, checks it offers the skill, and asks
    for the month on your behalf, forwarding your sign-in. Charges stream in as the card agent
    reads them.
-3. The review pauses on a question when it needs you: a merchant a card agent is unsure of, or a
-   card agent's request for a statement that is not downloaded yet. It waits as long as it
-   takes, even across a restart.
+3. The review pauses on a question when it needs you: a card agent's request for a statement that is
+   not downloaded yet, or a merchant a card agent is unsure of. It waits as long as it takes, even
+   across a restart.
 4. Your answers resume the review. A merchant question lists its charges, and you answer only the
    ones you recognize. A category you choose is remembered for that merchant, so next month asks
    less. A missing statement links to the card agent's statements page: sign in there with the
@@ -57,6 +81,21 @@ closer to a service than to an agent, and much of the exchange would fit plain H
 7. Mid-month, "Include expected charges" adds the standing orders and installments the latest
    earlier reviewed month says are still to come, so the pie shows where the month is heading.
 
+## Boundaries
+
+- **Each card agent normalizes and categorizes its own card, so the home finance agent handles
+  nothing card-specific.** Statement formats, card-specific labels, installments and foreign
+  purchases never reach it. Rows arrive in one shared format, each placed in a category by the
+  card agent with its confidence, `high`, `medium` or `low`, or `uncategorized` when it cannot
+  tell. Adding a card means running its agent and connecting it with `add-card-agent.sh`, with no
+  code change here. This agent owns only what spans cards: your categories (which outrank any card
+  agent's), the budget, the totals and the summary.
+- **They meet at one A2A contract, the same for every card agent.** The skill
+  `monthly-transactions` takes a billing month and returns rows in that shared format (ISO dates,
+  amounts in shekels, one category from a closed list), or a request for the missing statement.
+  [docs/a2a-contract.md](docs/a2a-contract.md) is the contract; a card agent documents how it
+  implements it in its own repo.
+
 ## Getting started
 
 Requires **Docker**, **Python 3.12+** and **Node.js 22+**. Everything here is this repo's own; a
@@ -66,9 +105,10 @@ card agent is deployed from its own repo and connected at the end.
    in [backend/.env.example](backend/.env.example). The next two steps fill in the two it needs.
 2. **A Google OAuth client** in a Google Cloud project of its own, with `http://localhost:8010` as
    the authorized JavaScript origin. [docs/sign-in.md](docs/sign-in.md#setting-up-google) walks
-   through the console. Add every household member's Google account as a test user: Google signs
-   in nobody else while an app is in testing. The client id goes into `backend/.env` as
-   `GOOGLE_CLIENT_ID`.
+   through the console. Add every household member's Google account as a test user: Google signs in
+   nobody else while an app is in testing. The client id goes into `backend/.env` as
+   `GOOGLE_CLIENT_ID`. Google allows only `localhost` or a public hostname as an origin, so a phone
+   on the home network cannot sign in until the stack is reached through a hostname.
 3. **A language model key**, Anthropic or OpenAI, as `LLM_API_KEY`. `LLM_MODEL=provider:model`
    names the model, OpenAI's `gpt-5-nano` unless changed.
 4. **Start:**
@@ -109,17 +149,6 @@ card agent is deployed from its own repo and connected at the end.
    and what the page says when the card agent is down, is in
    [docs/connecting-agents.md](docs/connecting-agents.md).
 
-## Sign-in
-
-Each agent has its own Google OAuth client, in its own Google Cloud project, and verifies every
-token itself against Google's published keys. The home finance agent forwards your token on each
-A2A call together with the secret the card agent issued to it, so the card agent knows both who is
-asking and on whose behalf. Setting up the two clients takes a few minutes in the Google Cloud
-console: [docs/sign-in.md](docs/sign-in.md) walks through it and explains the design, including
-what a card agent run by someone else would do differently. Sign-in works on `localhost` or a
-public hostname only, which is what Google allows as an origin; a phone on the home network cannot
-sign in until the stack is reached through a hostname.
-
 ## Scripts
 
 All live in `scripts/`; run with `--help` for full usage.
@@ -140,28 +169,6 @@ All live in `scripts/`; run with `--help` for full usage.
 ./scripts/test.sh e2e      # both agents in Docker, one full review with its questions answered
 ```
 The layers and what each proves: [docs/testing.md](docs/testing.md).
-
-## Architecture
-
-```mermaid
-flowchart LR
-  U((You)) -->|Sign in with Google| P[React page]
-  P -->|REST + live events| M[Home finance agent: FastAPI]
-  M --> G[Review graph]
-  G -->|A2A: your token + caller secret| A[amex-agent]
-  G -.->|same contract| B[any other card agent]
-  G --> DB[(Postgres: checkpoints, events, memory, per person)]
-  G -->|numbers in, prose out| L[Language model]
-```
-
-The review is a small state machine that can pause and resume; its state lives in Postgres, so a
-question can wait for hours. The home finance agent is the A2A client; each card agent is opaque to
-it beyond the protocol. Details and the reasoning behind them:
-[docs/architecture.md](docs/architecture.md); the contract every card agent offers:
-[docs/a2a-contract.md](docs/a2a-contract.md); how sign-in spans the agents:
-[docs/sign-in.md](docs/sign-in.md).
-
-**Stack:** Python, FastAPI, LangGraph, Postgres, a2a-sdk, React, Docker.
 
 ## License
 
