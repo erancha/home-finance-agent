@@ -127,10 +127,12 @@ card agent is deployed from its own repo and connected at the end.
    That id is public. Send it to the card agent's operator; step 6 records what they send back.
 5. Open **http://localhost:8010** and sign in with Google. The page says no card agent is connected
    yet, which is right: this agent runs on its own.
-6. **Connect a card agent.** Its operator deploys it from its own repo and registers this agent
-   as a caller with the client id from step 4. The registration prints four values, which they
-   send you by whatever channel you two share, a message or a password manager; nothing in either
-   agent transmits them. Each goes into one flag of the command below:
+6. **Connect a card agent.** Both operators' sides, in order, are in
+   [docs/connecting-agents.md](docs/connecting-agents.md). The card agent's operator deploys it
+   from its own repo and registers this agent as a caller with the client id from step 4. The
+   registration prints four values, which they send you by whatever channel you two share, a
+   message or a password manager; nothing in either agent transmits them. Each goes into one flag
+   of the command below:
 
    | Value | Flag |
    |---|---|
@@ -145,9 +147,7 @@ card agent is deployed from its own repo and connected at the end.
    ./scripts/start.sh      # the agent reads the registry at startup
    ```
 
-   The page then names the agent and offers a review. The whole exchange, both sessions in order
-   and what the page says when the card agent is down, is in
-   [docs/connecting-agents.md](docs/connecting-agents.md).
+   The page then names the agent and offers a review.
 
 ## Scripts
 
