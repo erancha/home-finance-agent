@@ -82,11 +82,11 @@ services:
       - ${CARD_AGENTS_FILE:?run through ./scripts/start.sh}:/card-agents.yaml:ro
     # More than one replica shows a review served by whichever one takes each request; the edge
     # spreads requests over all and picks up replicas added or recreated while the stack runs.
-    # Redeploy only while every review is waiting or completed: a replica that boots fails every
-    # running review, whoever runs it. To try another count without editing this file, scale the
-    # running stack from a shell that sourced scripts/common.sh and ran load_env (the compose
-    # interpolation needs its exports): `compose up -d --scale manager=N --wait`. The next
-    # start.sh returns to this count.
+    # A redeploy fails only the reviews running on the replicas it stops; a review another replica
+    # runs goes on, and a waiting review needs no replica. To try another count without editing
+    # this file, scale the running stack from a shell that sourced scripts/common.sh and ran
+    # load_env (the compose interpolation needs its exports):
+    # `compose up -d --scale manager=N --wait`. The next start.sh returns to this count.
     deploy: { replicas: 2, resources: { limits: { memory: 512M } } }
     healthcheck:
       test: ["CMD", "python", "-c",

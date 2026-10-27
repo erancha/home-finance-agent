@@ -1,6 +1,8 @@
 """Failures the review reports to its callers."""
 from __future__ import annotations
 
+from hfm.domain.models import ReviewStatus
+
 
 class ReviewError(Exception):
     pass
@@ -34,3 +36,14 @@ class InvalidTokenError(Exception):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+class StaleStatusError(Exception):
+    """A write refused because the review's status or clearing moved on since it was read."""
+
+    def __init__(self, review_id: str, status: ReviewStatus, cleared: bool) -> None:
+        state = "cleared" if cleared else status
+        super().__init__(f"review {review_id!r} is {state}")
+        self.review_id = review_id
+        self.status = status
+        self.cleared = cleared

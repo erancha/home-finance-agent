@@ -15,6 +15,7 @@ from hfm.ports.card_agent import (
     TransactionsBatch,
 )
 from hfm.ports.events import EventBus
+from hfm.ports.locks import Locks
 from hfm.ports.report import ReportWriter
 from hfm.ports.repositories import (
     MerchantMemory,
@@ -30,6 +31,7 @@ __all__ = [
     "CardAgentClient",
     "EventBus",
     "InputRequired",
+    "Locks",
     "MerchantMemory",
     "ReportMemory",
     "ReportWriter",

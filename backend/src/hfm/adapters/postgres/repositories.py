@@ -2,9 +2,10 @@
 
 Core building blocks:
 - PostgresReviewRepository: review rows; a unique index keeps one review per user and month
-  uncleared
+  uncleared, and a clear applies only to a review that is not running
 - PostgresReviewEventStore: per-review event log; each append locks the review's row, so sequence
-  numbers never collide and a status the event carries is written in the same transaction
+  numbers never collide and a status change the event carries is checked against the locked row
+  and written in the same transaction
 - PostgresMerchantMemory: per-user merchant key to category upserts
 - PostgresReportMemory: per-user prompt digest to report text, written once; a write forgets
   the user's rows older than the retention it was built with
@@ -29,8 +30,9 @@ from hfm.adapters.postgres.orm import (
     ReviewEventRow,
     ReviewRow,
 )
+from hfm.domain.errors import StaleStatusError
 from hfm.domain.events import ReviewEvent
-from hfm.domain.models import Review, ReviewStatus
+from hfm.domain.models import Review, ReviewStatus, StatusChange
 
 UNIQUE_VIOLATION = "23505"
 
@@ -114,11 +116,13 @@ class PostgresReviewRepository:
 
     async def clear(self, review_id: str, at: datetime) -> None:
         async with self._sessions.begin() as session:
-            result = await session.execute(
-                update(ReviewRow).where(ReviewRow.id == review_id).values(cleared_at=at)
-            )
-        if result.rowcount == 0:  # type: ignore[attr-defined]
-            raise KeyError(review_id)
+            row = await session.get(ReviewRow, review_id, with_for_update=True)
+            if row is None:
+                raise KeyError(review_id)
+            # A running review is never cleared, so the refusal names it as not cleared.
+            if row.status == ReviewStatus.RUNNING.value:
+                raise StaleStatusError(review_id, ReviewStatus.RUNNING, cleared=False)
+            row.cleared_at = at
 
 
 def _review(row: ReviewRow) -> Review:
@@ -137,17 +141,26 @@ class PostgresReviewEventStore:
         self._sessions = sessions
 
     async def append(
-        self, review_id: str, event: ReviewEvent, status: ReviewStatus | None = None
+        self, review_id: str, event: ReviewEvent, change: StatusChange | None = None
     ) -> int:
         async with self._sessions.begin() as session:
-            locked = await session.execute(
-                select(ReviewRow.id).where(ReviewRow.id == review_id).with_for_update()
-            )
-            if locked.scalar_one_or_none() is None:
-                raise KeyError(review_id)
-            if status is not None:
+            locked = (
                 await session.execute(
-                    update(ReviewRow).where(ReviewRow.id == review_id).values(status=status.value)
+                    select(ReviewRow.status, ReviewRow.cleared_at)
+                    .where(ReviewRow.id == review_id)
+                    .with_for_update()
+                )
+            ).one_or_none()
+            if locked is None:
+                raise KeyError(review_id)
+            if change is not None:
+                status, cleared = ReviewStatus(locked.status), locked.cleared_at is not None
+                if status != change.before or cleared:
+                    raise StaleStatusError(review_id, status, cleared)
+                await session.execute(
+                    update(ReviewRow)
+                    .where(ReviewRow.id == review_id)
+                    .values(status=change.after.value)
                 )
             last: int | None = await session.scalar(
                 select(func.coalesce(func.max(ReviewEventRow.seq), 0)).where(

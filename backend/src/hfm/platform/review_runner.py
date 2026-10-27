@@ -24,17 +24,27 @@ stopped at the question interrupt, COMPLETED when the graph reached its end, FAI
 raised. Every status change after the start is written in the same transaction as an event:
 review.failed for FAILED, review.status for the others. WAITING and COMPLETED are written only
 after the invocation's last checkpoint, so when the page acts on such an event, every replica's
-API already reports the same status.
-Recategorizing a COMPLETED review runs it again, back to COMPLETED. A review has at most one
-invocation in flight. The review id is the checkpoint thread id. A review still RUNNING when a
-new process starts lost its invocation and is failed. A RUNNING review cannot be cleared.
+API already reports the same status. Recategorizing a COMPLETED review runs it again, back to
+COMPLETED. The review id is the checkpoint thread id. A RUNNING review cannot be cleared.
+
+Every replica runs reviews, so the rules that keep a review consistent live in the database
+rather than in one process:
+- A review has at most one invocation in flight across every replica. Its run lock is taken
+  before its status becomes RUNNING and held until the invocation has recorded its outcome, and
+  a request that finds the lock held is refused.
+- Every status change applies only from the status it names, so of two requests acting on one
+  status only one changes it.
+- A RUNNING review whose run lock no one holds lost its invocation with its replica, since the
+  lock is released when the replica's process dies; the next replica to start fails it. A review
+  another replica runs keeps its lock and is left alone.
+- One person's starts are checked against the rations one at a time, under a lock of theirs.
 """
 from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Mapping
-from contextlib import nullcontext
+from collections.abc import AsyncIterator, Mapping
+from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -51,10 +61,17 @@ from hfm.application.questions import validate_answers, validate_categories
 from hfm.application.reconcile import standing_orders
 from hfm.application.review_graph import ReviewState
 from hfm.application.user_token import with_user_token
-from hfm.domain.errors import ReviewError
+from hfm.domain.errors import ReviewError, StaleStatusError
 from hfm.domain.events import REVIEW_FAILED, ReviewEvent
-from hfm.domain.models import CategoryTotal, Review, ReviewStatus, Transaction, User
-from hfm.ports import ReviewRepository
+from hfm.domain.models import (
+    CategoryTotal,
+    Review,
+    ReviewStatus,
+    StatusChange,
+    Transaction,
+    User,
+)
+from hfm.ports import Locks, ReviewRepository
 
 log = structlog.get_logger(__name__)
 
@@ -143,25 +160,24 @@ class ReviewRunner:
         graph: ReviewGraph,
         reviews: ReviewRepository,
         sink: ReviewEventSink,
+        locks: Locks,
         settle_seconds: float = SETTLE_SECONDS,
         daily_limit: int = DAILY_REVIEW_LIMIT,
     ) -> None:
         self._graph = graph
         self._reviews = reviews
         self._sink = sink
+        self._locks = locks
         self._settle_seconds = settle_seconds
         self._daily_limit = daily_limit
-        # Key: review id. Value: its in-flight invocation; a review has at most one, and the
-        # strong reference keeps it from being garbage-collected.
+        # Key: review id. Value: its invocation in flight on this replica; the strong reference
+        # keeps it from being garbage-collected.
         self._runs: dict[str, asyncio.Task[None]] = {}
-        # Serializes a request's check and the write it allows, so one pause is resumed once, a
-        # completed review is rerun once and concurrent starts cannot exceed the rations.
-        self._status_lock = asyncio.Lock()
 
     async def start(self, user: User, month: str, token: str) -> str:
         """Raises MonthReviewedError when the person's month has a review that is not cleared,
         and DailyLimitError when their window's starts are used up."""
-        async with self._status_lock:
+        async with self._locks.hold(_starts_key(user.id)):
             now = datetime.now(UTC)
             view = await self._month_view(user, month, now)
             if view.review is not None:
@@ -169,8 +185,11 @@ class ReviewRunner:
             if view.next_start is not None:
                 raise DailyLimitError(view.limit, view.next_start)
             review_id = str(uuid.uuid4())
-            await self._reviews.add(Review(review_id, user.id, month, ReviewStatus.RUNNING, now))
-        self._schedule(review_id, {"month": month, "user_id": user.id}, token)
+            async with self._owning(review_id) as owner:
+                await self._reviews.add(
+                    Review(review_id, user.id, month, ReviewStatus.RUNNING, now)
+                )
+        self._schedule(review_id, {"month": month, "user_id": user.id}, token, owner)
         return review_id
 
     async def month(self, user: User, month: str) -> MonthView:
@@ -207,14 +226,12 @@ class ReviewRunner:
                     ReviewStatus.RUNNING,
                     f"still running after {self._settle_seconds:g} s, not waiting for answers",
                 )
-        async with self._status_lock:
-            review = await self.review(user, review_id)
-            if review.status != ReviewStatus.WAITING:
-                raise ReviewConflictError(review_id, review.status, "not waiting for answers")
+        async with self._owning(review_id) as owner:
+            await self._expect(user, review_id, ReviewStatus.WAITING, "not waiting for answers")
             snapshot = await self._graph.aget_state(_config(review_id))
             validate_answers(snapshot.values["questions"], answers)
-            await self._sink.set_status(review_id, ReviewStatus.RUNNING)
-        self._schedule(review_id, Command(resume={"answers": dict(answers)}), token)
+            await self._set_running(review_id, ReviewStatus.WAITING)
+        self._schedule(review_id, Command(resume={"answers": dict(answers)}), token, owner)
 
     async def recategorize(
         self, user: User, review_id: str, categories: Mapping[str, Any]
@@ -224,24 +241,22 @@ class ReviewRunner:
         unchanged. Raises InvalidAnswersError, leaving the review completed, for a merchant not in
         the review or an illegal category.
         """
-        async with self._status_lock:
-            review = await self.review(user, review_id)
-            if review.status != ReviewStatus.COMPLETED:
-                raise ReviewConflictError(review_id, review.status, "not completed")
+        async with self._owning(review_id) as owner:
+            await self._expect(user, review_id, ReviewStatus.COMPLETED, "not completed")
             snapshot = await self._graph.aget_state(_config(review_id))
             chosen = validate_categories(snapshot.values["transactions"], categories)
-            await self._sink.set_status(review_id, ReviewStatus.RUNNING)
+            await self._set_running(review_id, ReviewStatus.COMPLETED)
         # Recategorizing reaches no card agent, so the run needs no token.
-        self._schedule(review_id, {"recategorize": chosen}, None)
+        self._schedule(review_id, {"recategorize": chosen}, None, owner)
 
     async def clear(self, user: User, review_id: str) -> None:
         """Free the review's month for a new review; the review is gone to the API afterwards.
         A RUNNING review is refused, since its invocation would go on writing to it."""
-        async with self._status_lock:
-            review = await self.review(user, review_id)
-            if review.status == ReviewStatus.RUNNING:
-                raise ReviewConflictError(review_id, review.status, "still running")
+        await self.review(user, review_id)
+        try:
             await self._reviews.clear(review_id, datetime.now(UTC))
+        except StaleStatusError as stale:
+            raise ReviewConflictError(review_id, stale.status, "still running") from stale
 
     async def status(self, user: User, review_id: str) -> ReviewView:
         review = await self.review(user, review_id)
@@ -287,15 +302,22 @@ class ReviewRunner:
         )
 
     async def fail_interrupted(self) -> None:
-        """Fail every review a stopped server left RUNNING; called before the runner serves.
+        """Fail every RUNNING review whose run lock no one holds; called before the runner serves.
 
-        Its invocation died with the old process, so nothing would ever move it on. A WAITING
-        review needs no process and is left to be answered.
+        Its invocation died with its replica, so nothing would ever move it on. A review another
+        replica runs holds its lock and is left running. A WAITING review needs no process and is
+        left to be answered.
         """
-        assert not self._runs, "only a runner with no invocation in flight knows RUNNING is stale"
         for review in await self._reviews.list_by_status(ReviewStatus.RUNNING):
-            log.warning("failing a review interrupted by a restart", review_id=review.id)
-            await self._fail(review.id, INTERRUPTED_MESSAGE)
+            async with self._locks.try_hold(_run_key(review.id)) as abandoned:
+                if not abandoned:
+                    continue
+                log.warning("failing a review interrupted by a restart", review_id=review.id)
+                try:
+                    await self._fail(review.id, INTERRUPTED_MESSAGE)
+                except StaleStatusError:
+                    # Its run recorded its outcome between the listing and taking the lock.
+                    continue
 
     async def review(self, user: User, review_id: str) -> Review:
         """The person's review unless it is unknown, another person's or cleared, all of which
@@ -316,38 +338,85 @@ class ReviewRunner:
             await asyncio.wait(set(self._runs.values()))
 
     async def aclose(self) -> None:
-        """Cancel in-flight invocations; their reviews stay RUNNING until the next startup's
-        fail_interrupted."""
+        """Cancel in-flight invocations; their reviews stay RUNNING with their run locks released,
+        until the next startup's fail_interrupted on any replica."""
         runs = list(self._runs.values())
         for task in runs:
             task.cancel()
         await asyncio.gather(*runs, return_exceptions=True)
 
-    def _schedule(
-        self, review_id: str, graph_input: ReviewState | Command[Any], token: str | None
+    @asynccontextmanager
+    async def _owning(self, review_id: str) -> AsyncIterator[AsyncExitStack]:
+        """Take the review's run lock for a request that may set it RUNNING; raises
+        ReviewConflictError when a run or another request holds it.
+
+        The lock is taken before the status changes, so a starting replica never fails a review
+        whose run is about to begin. When the body raises, the lock is released; otherwise the
+        caller hands the yielded stack, which holds it, to the run it schedules.
+        """
+        owner = AsyncExitStack()
+        if not await owner.enter_async_context(self._locks.try_hold(_run_key(review_id))):
+            await owner.aclose()
+            raise ReviewConflictError(review_id, ReviewStatus.RUNNING, "a run of it is in flight")
+        try:
+            yield owner
+        except BaseException:
+            await owner.aclose()
+            raise
+
+    async def _expect(
+        self, user: User, review_id: str, status: ReviewStatus, reason: str
     ) -> None:
+        review = await self.review(user, review_id)
+        if review.status != status:
+            raise ReviewConflictError(review_id, review.status, reason)
+
+    async def _set_running(self, review_id: str, before: ReviewStatus) -> None:
+        try:
+            await self._sink.set_status(review_id, StatusChange(before, ReviewStatus.RUNNING))
+        except StaleStatusError as stale:
+            # The run lock keeps the status as read, so only a clear can have moved it on.
+            assert stale.cleared, stale
+            raise ReviewNotFoundError(review_id, "was cleared") from stale
+
+    def _schedule(
+        self,
+        review_id: str,
+        graph_input: ReviewState | Command[Any],
+        token: str | None,
+        owner: AsyncExitStack,
+    ) -> None:
+        """owner holds the review's run lock; the run releases it once its outcome is recorded."""
         assert review_id not in self._runs, f"review {review_id!r} already has a run in flight"
-        task = asyncio.create_task(self._run(review_id, graph_input, token))
+        task = asyncio.create_task(self._run(review_id, graph_input, token, owner))
         self._runs[review_id] = task
         task.add_done_callback(lambda done: self._forget(review_id, done))
 
     async def _run(
-        self, review_id: str, graph_input: ReviewState | Command[Any], token: str | None
+        self,
+        review_id: str,
+        graph_input: ReviewState | Command[Any],
+        token: str | None,
+        owner: AsyncExitStack,
     ) -> None:
-        try:
-            with with_user_token(token) if token is not None else nullcontext():
-                result = await self._graph.ainvoke(graph_input, _config(review_id), version="v2")
-        except Exception as error:
-            log.error("review failed", review_id=review_id, exc_info=error)
-            await self._fail(review_id, failure_message(error))
-            return
-        await self._sink.set_status(
-            review_id, ReviewStatus.WAITING if result.interrupts else ReviewStatus.COMPLETED
-        )
+        async with owner:
+            try:
+                with with_user_token(token) if token is not None else nullcontext():
+                    result = await self._graph.ainvoke(
+                        graph_input, _config(review_id), version="v2"
+                    )
+            except Exception as error:
+                log.error("review failed", review_id=review_id, exc_info=error)
+                await self._fail(review_id, failure_message(error))
+                return
+            outcome = ReviewStatus.WAITING if result.interrupts else ReviewStatus.COMPLETED
+            await self._sink.set_status(review_id, StatusChange(ReviewStatus.RUNNING, outcome))
 
     async def _fail(self, review_id: str, message: str) -> None:
         await self._sink.emit(
-            review_id, ReviewEvent(REVIEW_FAILED, {"message": message}), ReviewStatus.FAILED
+            review_id,
+            ReviewEvent(REVIEW_FAILED, {"message": message}),
+            StatusChange(ReviewStatus.RUNNING, ReviewStatus.FAILED),
         )
 
     def _forget(self, review_id: str, task: asyncio.Task[None]) -> None:
@@ -363,6 +432,16 @@ def failure_message(error: Exception) -> str:
     if isinstance(error, ReviewError):
         return str(error)
     return f"{type(error).__name__}: see the server log"
+
+
+def _run_key(review_id: str) -> str:
+    """The lock held while a run of the review is in flight on any replica."""
+    return f"review:{review_id}"
+
+
+def _starts_key(user_id: str) -> str:
+    """The lock one person's starts are checked under, so concurrent starts count each other."""
+    return f"starts:{user_id}"
 
 
 def _config(review_id: str) -> RunnableConfig:

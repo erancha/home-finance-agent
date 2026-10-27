@@ -90,9 +90,18 @@ does not exist.
 `completed` only after the last checkpoint. The page takes the status from these events, so by the
 time it shows a question, every replica already sees the review as waiting.
 
-**A restart keeps waiting reviews and fails running ones.** A waiting review is only saved state.
-A review still running when a process starts lost its invocation, so startup marks it failed with
-a message asking the person to clear it and start again.
+**A restart keeps waiting reviews and fails the running ones it stopped.** A waiting review is
+only saved state. A running review is held by a lock in Postgres that every replica sees, taken
+before its status becomes running and released once its run records the outcome. Postgres also
+releases it when the replica's connection dies, so a running review whose lock no one holds lost
+its run. The next replica to start marks such a review failed, with a message asking the person to
+clear it and start again, and leaves alone a review another replica is running.
+
+**Every status change names the status it changes from.** The change is checked and written in
+one transaction, so of two answers reaching two replicas at once, one resumes the review and the
+other is refused. A request finds the review's lock held while a run is in flight, and is refused
+too. A person's starts are counted one at a time under a lock of their own, so two starts at once
+cannot pass the daily limit together.
 
 **Answers are checked before the graph resumes.** Every card agent's question must be answered,
 with one of the offered options, and merchant questions may be left unanswered. A bad set is

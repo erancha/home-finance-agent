@@ -3,11 +3,11 @@
 Core building blocks:
 - create_app: routes (sign-in, reviews, events, card agents), error mapping, probes and the
   optional static frontend; its lifespan builds the production wiring unless AppDeps are
-  injected, then the ReviewRunner, which fails the reviews a stopped server left running before
+  injected, then the ReviewRunner, which fails the reviews a stopped replica left running before
   the app serves
-- production_deps: database engine, repositories, Postgres checkpointer, card-agent client, the
-  card-agent registry and the budget file, report writer, token verifier, event bus and the review
-  graph, all closed in reverse order on shutdown
+- production_deps: database engine, repositories, locks, Postgres checkpointer, card-agent
+  client, the card-agent registry and the budget file, report writer, token verifier, event bus
+  and the review graph, all closed in reverse order on shutdown
 - open_event_bus: the in-process bus, or the Redis bus when REDIS_URL is set
 - /health answers while the process runs; /ready also needs the database to answer SELECT 1
 - signal_shutdown: tells open event streams to end when the server is asked to stop
@@ -41,6 +41,7 @@ from hfm.adapters.a2a_client import A2ACardAgentClient
 from hfm.adapters.config_files import load_budget, load_card_agents
 from hfm.adapters.google_tokens import GoogleTokenVerifier, JwksKeys, StaticKey
 from hfm.adapters.memory_bus import InMemoryEventBus
+from hfm.adapters.postgres.locks import PostgresLocks
 from hfm.adapters.postgres.repositories import (
     PostgresMerchantMemory,
     PostgresReportMemory,
@@ -128,6 +129,7 @@ async def production_deps(settings: Settings) -> AsyncIterator[AppDeps]:
             bus=bus,
             sink=sink,
             graph=build_review_graph(graph_deps, checkpointer),
+            locks=PostgresLocks(sessions),
             sessions=sessions,
             verifier=verifier,
             google_client_id=settings.google_client_id,
@@ -194,7 +196,9 @@ def create_app(settings: Settings | None = None, deps: AppDeps | None = None) ->
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async with source as resolved:
-            runner = ReviewRunner(resolved.graph, resolved.reviews, resolved.sink)
+            runner = ReviewRunner(
+                resolved.graph, resolved.reviews, resolved.sink, resolved.locks
+            )
             await runner.fail_interrupted()
             shutdown = asyncio.Event()
             app.state.deps = resolved

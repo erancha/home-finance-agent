@@ -33,7 +33,8 @@ projected onto a month in progress.
 streams covering every task state, malformed cards and rows, and the readable message for each
 connection failure. The token verifier refuses every kind of bad token. The Postgres repositories
 and the Redis event bus run on real containers, so the one-standing-review rule, concurrent event
-appends and cross-replica delivery are checked where they actually hold.
+appends, status changes refused from a status the review left, locks released when their holder's
+connection dies, and cross-replica delivery are checked where they actually hold.
 
 **Graph** runs the real review graph on fakes with the review's own checkpoint serializer: the happy
 path, pauses and resumes, "continue" and "skip", several card agents, failures naming the agent, and
@@ -45,8 +46,11 @@ cannot slip through.
 **Runner and API** drive the review runner and the HTTP routes: status changes logged as events,
 answers validated before the graph resumes, an answer that races the pause held until the run
 settles, the rationing of starts, every route refusing a person who is not signed in, and another
-person's review answering 404. The event-stream tests check that replay and live events arrive once
-each, and run real uvicorn to prove a shutdown signal ends open streams.
+person's review answering 404. A second runner on the same stores and locks stands in for a second
+replica. Its startup leaves the first one's running review alone. Answers sent to both at once
+resume a review once; starts sent to both at once stay within the daily limit. The event-stream
+tests check that replay and live events arrive once each, and run real uvicorn to prove a shutdown
+signal ends open streams.
 
 **Database restarts** are simulated by terminating every server connection; the checkpointer and the
 repositories must read again without a restart of the agent. A migration test proves the checkpoint

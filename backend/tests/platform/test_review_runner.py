@@ -22,6 +22,7 @@ from hfm.platform.review_runner import (
 )
 from hfm.ports import CardAgentClient, TaskFailed
 from tests.builders import make_tx
+from tests.fakes import InMemoryReviewRepository
 from tests.platform.support import (
     CATEGORY_QUESTION,
     COMPLETED,
@@ -51,30 +52,64 @@ from tests.platform.support import (
 class Run:
     def __init__(self, deps: AppDeps) -> None:
         self.deps = deps
-        self.runner = ReviewRunner(
-            deps.graph, deps.reviews, deps.sink, settle_seconds=SETTLE_SECONDS
+        self._runners: list[ReviewRunner] = []
+        self.runner = self.replica()
+
+    def replica(self) -> ReviewRunner:
+        """A runner on the same stores, locks and checkpoints, as another replica of the agent
+        has; the first one is self.runner."""
+        runner = ReviewRunner(
+            self.deps.graph,
+            self.deps.reviews,
+            self.deps.sink,
+            self.deps.locks,
+            settle_seconds=SETTLE_SECONDS,
         )
+        self._runners.append(runner)
+        return runner
+
+    async def aclose(self) -> None:
+        for runner in self._runners:
+            await runner.aclose()
 
     async def event_types(self, review_id: str) -> list[str]:
         return [event.type for _, event in await self.deps.events.list(review_id)]
 
 
+class RoundTripReviews(InMemoryReviewRepository):
+    """Every read yields to the event loop once, as a database round trip does, so requests on
+    two replicas interleave between a read and the write it allows."""
+
+    async def get(self, review_id: str) -> Review:
+        await asyncio.sleep(0)
+        return await super().get(review_id)
+
+    async def standing_for_month(self, user_id: str, month: str) -> Review | None:
+        await asyncio.sleep(0)
+        return await super().standing_for_month(user_id, month)
+
+    async def list_created_since(self, user_id: str, since: datetime) -> list[Review]:
+        await asyncio.sleep(0)
+        return await super().list_created_since(user_id, since)
+
+
 SETTLE_SECONDS = 0.2
-NewRun = Callable[[CardAgentClient], Run]
+NewRun = Callable[..., Run]
 
 
 @pytest.fixture
 async def new_run() -> AsyncIterator[NewRun]:
-    """Builds runs over fresh fakes and cancels whatever they still run at teardown."""
+    """Builds runs over fresh fakes, or the given review repository, and cancels whatever they
+    still run at teardown."""
     runs: list[Run] = []
 
-    def build(client: CardAgentClient) -> Run:
-        runs.append(Run(app_deps(client)))
+    def build(client: CardAgentClient, reviews: InMemoryReviewRepository | None = None) -> Run:
+        runs.append(Run(app_deps(client, reviews=reviews)))
         return runs[-1]
 
     yield build
     for run in runs:
-        await run.runner.aclose()
+        await run.aclose()
 
 
 async def test_start_waits_with_the_posed_question(new_run: NewRun) -> None:
@@ -248,6 +283,79 @@ async def test_fail_interrupted_fails_running_reviews_and_leaves_waiting_ones(
     ]
     assert (await run.deps.reviews.get("r-waiting")).status == ReviewStatus.WAITING
     assert await run.deps.events.list("r-waiting") == []
+
+
+async def test_a_starting_replica_leaves_a_review_another_replica_runs(
+    new_run: NewRun,
+) -> None:
+    client = BlockedCardClient()
+    run = new_run(client)
+    review_id = await run.runner.start(DANA, MONTH, DANA_TOKEN)
+    await asyncio.wait_for(client.entered.wait(), timeout=5)
+
+    await run.replica().fail_interrupted()
+
+    assert (await run.runner.status(DANA, review_id)).status == ReviewStatus.RUNNING
+    assert REVIEW_FAILED not in await run.event_types(review_id)
+
+
+async def test_a_review_whose_replica_stopped_is_failed_by_the_next_startup(
+    new_run: NewRun,
+) -> None:
+    client = BlockedCardClient()
+    run = new_run(client)
+    review_id = await run.runner.start(DANA, MONTH, DANA_TOKEN)
+    await asyncio.wait_for(client.entered.wait(), timeout=5)
+    await run.runner.aclose()
+
+    await run.replica().fail_interrupted()
+
+    assert (await run.runner.status(DANA, review_id)).status == ReviewStatus.FAILED
+    assert (await run.deps.events.list(review_id))[-1][1] == failed_event(INTERRUPTED_MESSAGE)
+
+
+async def test_answers_reaching_two_replicas_at_once_resume_the_review_once(
+    new_run: NewRun,
+) -> None:
+    run = new_run(scripted(UNKNOWN_MERCHANT), RoundTripReviews())
+    review_id = await run.runner.start(DANA, MONTH, DANA_TOKEN)
+    await run.runner.drain()
+    replica = run.replica()
+    answers = {CATEGORY_QUESTION: "dining"}
+
+    outcomes = await asyncio.gather(
+        run.runner.answer(DANA, review_id, answers, DANA_TOKEN),
+        replica.answer(DANA, review_id, answers, DANA_TOKEN),
+        return_exceptions=True,
+    )
+    await run.runner.drain()
+    await replica.drain()
+
+    assert sorted(type(outcome).__name__ for outcome in outcomes) == [
+        "NoneType",
+        "ReviewConflictError",
+    ]
+    assert (await run.event_types(review_id)).count(REVIEW_REPORT) == 1
+    assert (await run.runner.status(DANA, review_id)).status == ReviewStatus.COMPLETED
+
+
+async def test_starts_reaching_two_replicas_at_once_stay_within_the_daily_limit(
+    new_run: NewRun,
+) -> None:
+    run = new_run(BlockedCardClient(), RoundTripReviews())
+    now = datetime.now(UTC)
+    for n in range(DAILY_REVIEW_LIMIT - 1):
+        await run.deps.reviews.add(
+            Review(f"r-{n}", DANA.id, f"2025-0{n + 1}", ReviewStatus.FAILED, now)
+        )
+
+    outcomes = await asyncio.gather(
+        run.runner.start(DANA, MONTH, DANA_TOKEN),
+        run.replica().start(DANA, OTHER_MONTH, DANA_TOKEN),
+        return_exceptions=True,
+    )
+
+    assert sorted(type(outcome).__name__ for outcome in outcomes) == ["DailyLimitError", "str"]
 
 
 async def test_recategorizing_a_completed_review_reruns_it_to_a_new_report(

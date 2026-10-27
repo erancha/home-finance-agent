@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from hfm.application.event_sink import ReviewEventSink
 from hfm.platform.review_runner import ReviewGraph, ReviewRunner
-from hfm.ports import EventBus, ReviewEventStore, ReviewRepository, TokenVerifier
+from hfm.ports import EventBus, Locks, ReviewEventStore, ReviewRepository, TokenVerifier
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,8 @@ class AppDeps:
     sink: ReviewEventSink
     """Writes to events and publishes on bus; the graph emits through the same instance."""
     graph: ReviewGraph
+    locks: Locks
+    """Shared by every replica on the same database; the runner's run and start locks."""
     sessions: Callable[[], AsyncSession]
     """Opens database sessions; the readiness probe runs its query through it."""
     verifier: TokenVerifier

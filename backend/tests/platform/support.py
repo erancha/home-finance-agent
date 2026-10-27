@@ -32,6 +32,7 @@ from tests.fakes import (
     FakeReportWriter,
     FakeTokenVerifier,
     InMemoryEventBus,
+    InMemoryLocks,
     InMemoryMerchantMemory,
     InMemoryReportMemory,
     InMemoryReviewEventStore,
@@ -141,11 +142,15 @@ class UnreachableDatabase:
 
 
 def app_deps(
-    client: CardAgentClient, sessions: Any = None, card_agents: tuple[str, ...] = ("amex",)
+    client: CardAgentClient,
+    sessions: Any = None,
+    card_agents: tuple[str, ...] = ("amex",),
+    reviews: InMemoryReviewRepository | None = None,
 ) -> AppDeps:
     """App wiring over the given card client, in-memory fakes for the other ports and a review
-    graph on an in-memory checkpointer; sessions default to an unreachable database."""
-    reviews = InMemoryReviewRepository()
+    graph on an in-memory checkpointer; sessions default to an unreachable database, reviews to
+    a fresh repository."""
+    reviews = InMemoryReviewRepository() if reviews is None else reviews
     store = InMemoryReviewEventStore(reviews)
     bus = InMemoryEventBus()
     sink = ReviewEventSink(store, bus, lambda: EVENT_TIME)
@@ -165,6 +170,7 @@ def app_deps(
         bus=bus,
         sink=sink,
         graph=graph,
+        locks=InMemoryLocks(),
         sessions=UnreachableDatabase() if sessions is None else sessions,
         verifier=FakeTokenVerifier(TOKENS),
         google_client_id="hfm-test-client",

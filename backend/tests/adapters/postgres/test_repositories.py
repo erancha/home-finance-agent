@@ -15,8 +15,9 @@ from hfm.adapters.postgres.repositories import (
     PostgresReviewEventStore,
     PostgresReviewRepository,
 )
+from hfm.domain.errors import StaleStatusError
 from hfm.domain.events import ReviewEvent
-from hfm.domain.models import Review, ReviewStatus
+from hfm.domain.models import Review, ReviewStatus, StatusChange
 from hfm.platform.db import build_engine, session_factory
 
 
@@ -58,10 +59,67 @@ async def test_an_event_carrying_a_status_changes_the_review_with_it(sessions) -
 
     await store.append("r-status", ReviewEvent("plain", {}))
     assert (await repo.get("r-status")).status is ReviewStatus.RUNNING
-    await store.append("r-status", ReviewEvent("done", {}), ReviewStatus.COMPLETED)
+    finish = StatusChange(ReviewStatus.RUNNING, ReviewStatus.COMPLETED)
+    await store.append("r-status", ReviewEvent("done", {}), finish)
 
     assert (await repo.get("r-status")).status is ReviewStatus.COMPLETED
     assert [e.type for _, e in await store.list("r-status")] == ["plain", "done"]
+
+
+RESUME = StatusChange(ReviewStatus.WAITING, ReviewStatus.RUNNING)
+
+
+async def test_a_status_change_from_another_status_is_refused_and_writes_nothing(
+    sessions,
+) -> None:
+    repo = PostgresReviewRepository(sessions)
+    await repo.add(make_review("r-stale"))
+    store = PostgresReviewEventStore(sessions)
+
+    with pytest.raises(StaleStatusError) as refused:
+        await store.append("r-stale", ReviewEvent("resumed", {}), RESUME)
+
+    assert (refused.value.status, refused.value.cleared) == (ReviewStatus.RUNNING, False)
+    assert (await repo.get("r-stale")).status is ReviewStatus.RUNNING
+    assert await store.list("r-stale") == []
+
+
+async def test_of_two_simultaneous_changes_from_one_status_only_one_applies(sessions) -> None:
+    await PostgresReviewRepository(sessions).add(
+        replace(make_review("r-twice"), status=ReviewStatus.WAITING)
+    )
+    store = PostgresReviewEventStore(sessions)
+
+    outcomes = await asyncio.gather(
+        *(store.append("r-twice", ReviewEvent("resumed", {}), RESUME) for _ in range(2)),
+        return_exceptions=True,
+    )
+
+    assert sorted(type(outcome).__name__ for outcome in outcomes) == ["StaleStatusError", "int"]
+    assert len(await store.list("r-twice")) == 1
+
+
+async def test_a_cleared_review_refuses_every_status_change(sessions) -> None:
+    repo = PostgresReviewRepository(sessions)
+    await repo.add(replace(make_review("r-cleared-change"), status=ReviewStatus.WAITING))
+    await repo.clear("r-cleared-change", datetime.now(UTC))
+
+    with pytest.raises(StaleStatusError) as refused:
+        await PostgresReviewEventStore(sessions).append(
+            "r-cleared-change", ReviewEvent("resumed", {}), RESUME
+        )
+    assert refused.value.cleared
+
+
+async def test_a_running_review_cannot_be_cleared(sessions) -> None:
+    repo = PostgresReviewRepository(sessions)
+    await repo.add(make_review("r-running-clear"))
+
+    with pytest.raises(StaleStatusError) as refused:
+        await repo.clear("r-running-clear", datetime.now(UTC))
+
+    assert refused.value.status is ReviewStatus.RUNNING
+    assert (await repo.get("r-running-clear")).cleared_at is None
 
 
 async def test_unknown_review_raises_key_error(sessions) -> None:
@@ -181,7 +239,7 @@ async def test_list_by_status_returns_matching_reviews_oldest_first(sessions) ->
 
 async def test_a_users_month_holds_one_standing_review_until_it_is_cleared(sessions) -> None:
     repo = PostgresReviewRepository(sessions)
-    first = make_review("r-standing-first")
+    first = replace(make_review("r-standing-first"), status=ReviewStatus.COMPLETED)
     await repo.add(first)
     assert await repo.standing_for_month(USER, first.month) == first
     with pytest.raises(ValueError, match=first.month):
@@ -209,7 +267,10 @@ async def test_another_user_reviews_the_same_month_independently(sessions) -> No
 async def test_list_created_since_counts_the_users_own_reviews_cleared_included(sessions) -> None:
     repo = PostgresReviewRepository(sessions)
     since = datetime(2031, 1, 1, tzinfo=UTC)
-    before, older, newer = (make_review(f"r-since-{n}") for n in ("before", "older", "newer"))
+    before, older, newer = (
+        replace(make_review(f"r-since-{n}"), status=ReviewStatus.FAILED)
+        for n in ("before", "older", "newer")
+    )
     await repo.add(replace(before, created_at=since - timedelta(seconds=1)))
     await repo.add(replace(newer, created_at=since + timedelta(hours=2)))
     await repo.add(replace(older, created_at=since))

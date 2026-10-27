@@ -14,6 +14,7 @@ from hfm.ports import (
     AgentInfo,
     CardAgentClient,
     EventBus,
+    Locks,
     MerchantMemory,
     ReportMemory,
     ReportWriter,
@@ -27,6 +28,7 @@ from tests.fakes import (
     FakeReportWriter,
     FakeTokenVerifier,
     InMemoryEventBus,
+    InMemoryLocks,
     InMemoryMerchantMemory,
     InMemoryReportMemory,
     InMemoryReviewEventStore,
@@ -47,6 +49,7 @@ def test_fakes_satisfy_their_ports() -> None:
     assert isinstance(InMemoryReportMemory(), ReportMemory)
     assert isinstance(FakeReportWriter(), ReportWriter)
     assert isinstance(InMemoryEventBus(), EventBus)
+    assert isinstance(InMemoryLocks(), Locks)
     assert isinstance(FakeTokenVerifier({}), TokenVerifier)
 
 

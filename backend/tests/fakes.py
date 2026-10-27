@@ -4,6 +4,7 @@ Core building blocks:
 - ScriptedCardAgentClient: replays scripted event sequences per agent and records its calls
 - InMemoryReviewRepository, InMemoryReviewEventStore, InMemoryMerchantMemory,
   InMemoryReportMemory: dict-backed storage
+- InMemoryLocks: named locks shared by every runner built on the same instance
 - FakeTokenVerifier: maps known tokens to people, refuses the rest
 - FakeReportWriter: returns fixed text and records prompts
 - InMemoryEventBus: re-exported from the production adapter
@@ -11,18 +12,21 @@ Core building blocks:
 
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from collections.abc import AsyncIterator, Iterable
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 
 from hfm.adapters.memory_bus import InMemoryEventBus
-from hfm.domain.errors import InvalidTokenError
+from hfm.domain.errors import InvalidTokenError, StaleStatusError
 from hfm.domain.events import ReviewEvent
 from hfm.domain.models import (
     AgentConfig,
     Review,
     ReviewStatus,
+    StatusChange,
     TaskRef,
     User,
     VerifiedToken,
@@ -75,9 +79,13 @@ class InMemoryReviewRepository:
     async def get(self, review_id: str) -> Review:
         return self._reviews[review_id]
 
-    def write_status(self, review_id: str, status: ReviewStatus) -> None:
-        """Applies a status an event carries, for InMemoryReviewEventStore; not part of the port."""
-        self._reviews[review_id] = replace(self._reviews[review_id], status=status)
+    def change_status(self, review_id: str, change: StatusChange) -> None:
+        """Applies a status change an event carries, for InMemoryReviewEventStore; not part of
+        the port."""
+        review = self._reviews[review_id]
+        if review.status != change.before or review.cleared_at is not None:
+            raise StaleStatusError(review_id, review.status, review.cleared_at is not None)
+        self._reviews[review_id] = replace(review, status=change.after)
 
     async def list_by_status(self, status: ReviewStatus) -> list[Review]:
         matching = [review for review in self._reviews.values() if review.status == status]
@@ -112,22 +120,25 @@ class InMemoryReviewRepository:
         return sorted(recent, key=lambda review: review.created_at)
 
     async def clear(self, review_id: str, at: datetime) -> None:
-        self._reviews[review_id] = replace(self._reviews[review_id], cleared_at=at)
+        review = self._reviews[review_id]
+        if review.status == ReviewStatus.RUNNING:
+            raise StaleStatusError(review_id, review.status, cleared=False)
+        self._reviews[review_id] = replace(review, cleared_at=at)
 
 
 class InMemoryReviewEventStore:
-    """Writes the status an event carries into the given review repository, as the Postgres store
-    does in the same transaction as the event."""
+    """Applies the status change an event carries to the given review repository, as the Postgres
+    store does in the same transaction as the event; a refused change appends nothing."""
 
     def __init__(self, reviews: InMemoryReviewRepository) -> None:
         self._reviews = reviews
         self._events: dict[str, list[ReviewEvent]] = defaultdict(list)
 
     async def append(
-        self, review_id: str, event: ReviewEvent, status: ReviewStatus | None = None
+        self, review_id: str, event: ReviewEvent, change: StatusChange | None = None
     ) -> int:
-        if status is not None:
-            self._reviews.write_status(review_id, status)
+        if change is not None:
+            self._reviews.change_status(review_id, change)
         events = self._events[review_id]
         events.append(event)
         return len(events)
@@ -169,6 +180,28 @@ class InMemoryReportMemory:
         self._texts[(user_id, prompt)] = text
 
 
+class InMemoryLocks:
+    """A lock dies with the task holding it only when that task exits its context, which
+    cancelling the task does."""
+
+    def __init__(self) -> None:
+        self._locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+
+    @asynccontextmanager
+    async def hold(self, key: str) -> AsyncIterator[None]:
+        async with self._locks[key]:
+            yield
+
+    @asynccontextmanager
+    async def try_hold(self, key: str) -> AsyncIterator[bool]:
+        lock = self._locks[key]
+        if lock.locked():
+            yield False
+            return
+        async with lock:
+            yield True
+
+
 class FakeTokenVerifier:
     """Accepts the tokens it was given, each naming a person; any other token is refused."""
 
@@ -195,6 +228,7 @@ __all__ = [
     "FakeReportWriter",
     "FakeTokenVerifier",
     "InMemoryEventBus",
+    "InMemoryLocks",
     "InMemoryMerchantMemory",
     "InMemoryReportMemory",
     "InMemoryReviewEventStore",

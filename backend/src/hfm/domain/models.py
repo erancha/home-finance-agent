@@ -122,6 +122,16 @@ class ReviewStatus(StrEnum):
 
 
 @dataclass(frozen=True)
+class StatusChange:
+    """A review's move from one status to another; it applies only while the review is not
+    cleared and still has the before status, so of two requests acting on one status only one
+    wins."""
+
+    before: ReviewStatus
+    after: ReviewStatus
+
+
+@dataclass(frozen=True)
 class Review:
     id: str
     user_id: str

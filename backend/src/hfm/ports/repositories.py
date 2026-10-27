@@ -4,7 +4,8 @@ Core building blocks:
 - ReviewRepository: stores reviews and when they were cleared; a person's month has at most one
   review that is not cleared
 - ReviewEventStore: append-only per-review event log with sequence numbers; after a review is
-  added, its status changes only through this store, so every change is also an event in its log
+  added, its status changes only through this store, so every change is also an event in its log,
+  and only from the status the change names
 - MerchantMemory: merchant key to category lookups learned from each person's own choices
 - ReportMemory: the report text each of a person's recent review prompts got
 
@@ -18,7 +19,7 @@ from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from hfm.domain.events import ReviewEvent
-from hfm.domain.models import Review, ReviewStatus
+from hfm.domain.models import Review, ReviewStatus, StatusChange
 
 
 @runtime_checkable
@@ -50,20 +51,22 @@ class ReviewRepository(Protocol):
         ...
 
     async def clear(self, review_id: str, at: datetime) -> None:
-        """Record when the review was cleared; raises KeyError when the id is unknown."""
+        """Record when the review was cleared; raises KeyError when the id is unknown and
+        StaleStatusError, clearing nothing, while it is RUNNING."""
         ...
 
 
 @runtime_checkable
 class ReviewEventStore(Protocol):
     async def append(
-        self, review_id: str, event: ReviewEvent, status: ReviewStatus | None = None
+        self, review_id: str, event: ReviewEvent, change: StatusChange | None = None
     ) -> int:
         """Append the event and return its sequence number, 1-based per review.
 
-        When a status is given, the review's status is set to it in the same transaction, so a
-        reader of the log never learns of a status the review does not show yet. Raises KeyError
-        for an unknown id.
+        When a change is given, the review's status changes with it in the same transaction, so a
+        reader of the log never learns of a status the review does not show yet. A change the
+        review no longer allows raises StaleStatusError and appends nothing. Raises KeyError for
+        an unknown id.
         """
         ...
 
