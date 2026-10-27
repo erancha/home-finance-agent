@@ -16,6 +16,7 @@ function chart(overrides: Partial<ComponentProps<typeof TotalsChart>> = {}) {
     <TotalsChart
       totals={totals}
       standingOrders="0.00"
+      withExpected={false}
       skipped={[]}
       selected={null}
       onSelect={vi.fn()}
@@ -30,12 +31,24 @@ function legendRow(category: string): HTMLElement {
 }
 
 describe('TotalsChart', () => {
+  it("ends the legend with the month's total, the categories added up", () => {
+    chart()
+    expect(screen.getByRole('rowheader', { name: 'Total' }).closest('tr'))
+      .toHaveTextContent('Total₪1,330')
+  })
+
+  it('names the total as including the expected charges when they are counted', () => {
+    chart({ withExpected: true })
+    expect(screen.getByRole('rowheader', { name: 'Total, with expected charges' }))
+      .toBeInTheDocument()
+  })
+
   it('draws one slice per category with spend and summarizes them for assistive technology', () => {
     const { container } = chart()
     expect(container.querySelectorAll('.recharts-pie-sector')).toHaveLength(3)
     expect(screen.getByRole('img')).toHaveAccessibleName(
-      'Spending by category: groceries 1,200 / 1,000 (90.2%), '
-        + 'dining 100 / 500 (7.5%), misc 30 (2.3%)',
+      'Spending by category: groceries ₪1,200 / ₪1,000 (90.2%), '
+        + 'dining ₪100 / ₪500 (7.5%), misc ₪30 (2.3%)',
     )
   })
 
@@ -45,7 +58,7 @@ describe('TotalsChart', () => {
     expect(rows.map((row) => row.querySelector('button')!.textContent))
       .toEqual(['groceries', 'dining', 'misc', 'travel'])
     expect(legendRow('groceries')).toHaveClass('over')
-    expect(legendRow('groceries')).toHaveTextContent('1,200 / 1,000')
+    expect(legendRow('groceries')).toHaveTextContent('₪1,200 / ₪1,000')
     expect(legendRow('groceries')).toHaveTextContent('over budget')
     expect(legendRow('dining')).not.toHaveClass('over')
     expect(legendRow('misc')).toHaveTextContent('no limit')
@@ -56,7 +69,7 @@ describe('TotalsChart', () => {
   it('shows the hovered slice with its amount and share', async () => {
     const { container } = chart()
     await userEvent.hover(container.querySelector('.recharts-pie-sector')!)
-    expect(await screen.findByText('groceries 1,200 / 1,000 (90.2%)', { selector: '.chart-tooltip' }))
+    expect(await screen.findByText('groceries ₪1,200 / ₪1,000 (90.2%)', { selector: '.chart-tooltip' }))
       .toBeInTheDocument()
   })
 
@@ -64,7 +77,7 @@ describe('TotalsChart', () => {
     chart({ totals: [totals[3]], skipped: ['amex'] })
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
     expect(screen.getByText('Nothing spent.')).toBeInTheDocument()
-    expect(legendRow('travel')).toHaveTextContent('0 / 800')
+    expect(legendRow('travel')).toHaveTextContent('₪0 / ₪800')
   })
 
   it('lists skipped agents', () => {
@@ -89,7 +102,7 @@ describe('TotalsChart', () => {
     const onSelectStandingOrders = vi.fn()
     chart({ standingOrders: '1308.00', onSelectStandingOrders })
     expect(screen.getByText('Standing orders').closest('p')).toHaveTextContent(
-      'Standing orders 1,308 across categories',
+      'Standing orders ₪1,308 across categories',
     )
     await userEvent.click(screen.getByRole('button', { name: 'Standing orders' }))
     expect(onSelectStandingOrders).toHaveBeenCalledOnce()

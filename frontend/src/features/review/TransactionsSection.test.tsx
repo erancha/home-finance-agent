@@ -49,7 +49,33 @@ describe('TransactionsSection', () => {
 
     expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(3)
     expect(screen.getAllByText('uncategorized')).toHaveLength(2)
-    expect(screen.getAllByText('1,121')).toHaveLength(2)
+    expect(screen.getAllByText('₪1,121')).toHaveLength(2)
+  })
+
+  it('lists the rows of every card agent together by purchase date', () => {
+    const late: Transaction = { ...row, id: 'a1', transactionDate: '2026-09-20', merchant: 'late' }
+    const early: Transaction = { ...row, id: 'a2', transactionDate: '2026-09-02', merchant: 'early' }
+    const middle: Transaction = {
+      ...row, id: 'c1', agent: 'cal', transactionDate: '2026-09-10', merchant: 'middle',
+    }
+    render(
+      <TransactionsSection
+        events={[batch(late, early), batch(middle)]}
+        expected={[]}
+        totals={null}
+        onRecategorize={null}
+        category={null}
+        standingOrders={false}
+        onStandingOrders={vi.fn()}
+        inProgress={false}
+        picks={1}
+      />,
+    )
+    const merchants = within(screen.getByRole('table'))
+      .getAllByRole('row')
+      .slice(1)
+      .map((tr) => tr.querySelector('.merchant')?.textContent)
+    expect(merchants).toEqual(['early', 'middle', 'late'])
   })
 
   it("shows each row's details and confidence, with the statement text as a tooltip", () => {
@@ -71,7 +97,7 @@ describe('TransactionsSection', () => {
     )
     const cells = within(screen.getAllByRole('row')[1]).getAllByRole('cell')
     expect(cells.map((c) => c.textContent)).toEqual([
-      '2026-09-02', 'amex', 'שופרסל', '1,121', '3 of 10', 'uncategorized', 'low',
+      '2026-09-02', 'amex', 'שופרסל', '₪1,121', '3 of 10', 'uncategorized', 'low',
     ])
     expect(cells[2]).toHaveAttribute('title', 'SHUFERSAL 12')
     expect(cells[6]).toHaveClass('confidence-low')

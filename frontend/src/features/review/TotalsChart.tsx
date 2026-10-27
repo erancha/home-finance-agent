@@ -1,10 +1,12 @@
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import type { CategoryTotal } from '../../api/types.ts'
-import { formatAmount } from '../../format.ts'
+import { formatShekels, formatShekelsSum } from '../../format.ts'
 
 interface Props {
   totals: CategoryTotal[]
   standingOrders: string
+  /** The totals count the charges a mid-month review still expects. */
+  withExpected: boolean
   skipped: string[]
   /** The category whose transactions are shown; null shows all. */
   selected: string | null
@@ -39,8 +41,8 @@ function slicesOf(totals: CategoryTotal[]): Slice[] {
 }
 
 function amountLabel(total: CategoryTotal): string {
-  const spent = formatAmount(total.spent)
-  return total.limit === null ? spent : `${spent} / ${formatAmount(total.limit)}`
+  const spent = formatShekels(total.spent)
+  return total.limit === null ? spent : `${spent} / ${formatShekels(total.limit)}`
 }
 
 function shareLabel(share: number): string {
@@ -59,6 +61,7 @@ function SliceTooltip({ active, payload }: { active?: boolean; payload?: { paylo
 export function TotalsChart({
   totals,
   standingOrders,
+  withExpected,
   skipped,
   selected,
   onSelect,
@@ -162,13 +165,21 @@ export function TotalsChart({
               )
             })}
           </tbody>
+          <tfoot>
+            <tr>
+              <th scope="row">{withExpected ? 'Total, with expected charges' : 'Total'}</th>
+              <td className="num">{formatShekelsSum(totals.map((t) => t.spent))}</td>
+              <td></td>
+              <td></td>
+            </tr>
+          </tfoot>
         </table>
       </div>
       <p>
         <button type="button" className="legend-button" onClick={onSelectStandingOrders}>
           Standing orders
         </button>{' '}
-        {formatAmount(standingOrders)}{' '}
+        {formatShekels(standingOrders)}{' '}
         <span className="muted">across categories</span>
       </p>
     </section>

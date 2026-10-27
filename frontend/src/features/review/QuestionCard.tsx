@@ -3,7 +3,7 @@ import { SIGN_IN_REQUIRED } from '../../api/types.ts'
 import type { Answers, Question, Transaction, User } from '../../api/types.ts'
 import { GoogleSignIn } from '../../auth/GoogleSignIn.tsx'
 import { displayName } from '../../auth/SessionHeader.tsx'
-import { formatAmount } from '../../format.ts'
+import { formatShekels } from '../../format.ts'
 import { transactionDetails } from './transactionDetails.ts'
 
 interface Props {
@@ -56,7 +56,7 @@ function MerchantRows({
             <td>{t.transactionDate}</td>
             <td>{t.agent}</td>
             <td dir="auto">{t.rawMerchant}</td>
-            <td>{formatAmount(t.amount)}</td>
+            <td>{formatShekels(t.amount)}</td>
             <td>{transactionDetails(t)}</td>
           </tr>
         ))}

@@ -6,7 +6,7 @@ import type {
   TotalsData,
   Transaction,
 } from '../../api/types.ts'
-import { formatAmount } from '../../format.ts'
+import { formatShekels } from '../../format.ts'
 import { transactionDetails } from './transactionDetails.ts'
 
 /** A "continue" can resend rows already shown, so rows are unique by agent and id. */
@@ -17,6 +17,16 @@ export function uniqueTransactions(events: ReviewEvent[]): Transaction[] {
     for (const row of event.data.transactions) rows.set(`${row.agent}\u0000${row.id}`, row)
   }
   return [...rows.values()]
+}
+
+/** Orders rows by purchase date across card agents; agent and id break ties, so the order does not
+ * depend on which agent's stream arrived first. */
+function byPurchaseDate(a: Transaction, b: Transaction): number {
+  return (
+    a.transactionDate.localeCompare(b.transactionDate) ||
+    a.agent.localeCompare(b.agent) ||
+    a.id.localeCompare(b.id)
+  )
 }
 
 interface Props {
@@ -38,8 +48,8 @@ interface Props {
   picks: number
 }
 
-/** The charges still expected, when shown, then every row the card agents sent; folded so the long
- * list does not push the totals down. */
+/** The charges still expected, when shown, then every row the card agents sent, each group by
+ * purchase date; folded so the long list does not push the totals down. */
 export function TransactionsSection({
   events,
   expected,
@@ -64,7 +74,7 @@ export function TransactionsSection({
     setUnfoldedForLow(true)
   }
   const isExpected = new Set(expected)
-  const rows = [...expected, ...all]
+  const rows = [...[...expected].sort(byPurchaseDate), ...[...all].sort(byPurchaseDate)]
   if (rows.length === 0) return null
   // A row streamed after the latest totals is not counted yet and shows the card's category.
   const counted = (t: Transaction) => totals?.categories[t.agent]?.[t.id] ?? t.category
@@ -131,7 +141,7 @@ export function TransactionsSection({
                 >
                   {t.merchant}
                 </td>
-                <td>{formatAmount(t.amount)}</td>
+                <td>{formatShekels(t.amount)}</td>
                 <td>
                   {[isExpected.has(t) ? 'expected' : '', transactionDetails(t)]
                     .filter((part) => part !== '')

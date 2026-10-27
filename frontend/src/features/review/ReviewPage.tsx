@@ -136,6 +136,11 @@ export function ReviewPage() {
   const report = events.findLast((e) => e.type === 'review.report')
   const failure = events.findLast((e) => e.type === 'review.failed')
   const inProgress = status === 'running' || status === 'waiting'
+  // A reload replays the log one event at a time, passing through the running and waiting states
+  // of a review that has long ended; the review's status, fetched with the month, tells a live
+  // review apart.
+  const liveInThisPage =
+    inProgress && review !== null && (review.status === 'running' || review.status === 'waiting')
   const completed = status === 'completed'
   const totalsSeq = totals?.type === 'review.totals' ? totals.seq : null
   const withExpected =
@@ -301,7 +306,7 @@ export function ReviewPage() {
           category={shown.category}
           standingOrders={shown.standingOrders}
           onStandingOrders={(standingOrders) => setShown((s) => ({ ...s, standingOrders }))}
-          inProgress={inProgress}
+          inProgress={liveInThisPage}
           picks={shown.picks}
         />
       )}
@@ -309,6 +314,7 @@ export function ReviewPage() {
         <TotalsChart
           totals={shownTotals.totals}
           standingOrders={shownTotals.standingOrders}
+          withExpected={expected !== null}
           skipped={shownTotals.skipped}
           selected={shown.category}
           onSelect={(category) =>

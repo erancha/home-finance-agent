@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { formatAmount, formatTimestamp } from './format.ts'
+import {
+  formatAmount,
+  formatShekels,
+  formatShekelsSum,
+  formatTimestamp,
+} from './format.ts'
 
 describe('formatAmount', () => {
   it('rounds to whole units and separates thousands', () => {
@@ -11,6 +16,28 @@ describe('formatAmount', () => {
 
   it('refuses text that is not a number', () => {
     expect(() => formatAmount('abc')).toThrow('not an amount: abc')
+  })
+})
+
+describe('formatShekels', () => {
+  it('shows a card-currency amount as whole shekels with the shekel sign', () => {
+    expect(formatShekels('1248.82')).toBe('₪1,249')
+    expect(formatShekels('-35.50')).toBe('-₪36')
+  })
+
+  it('refuses text that is not a number', () => {
+    expect(() => formatShekels('abc')).toThrow('not an amount: abc')
+  })
+})
+
+describe('formatShekelsSum', () => {
+  it('adds amounts up and shows the sum as whole shekels', () => {
+    expect(formatShekelsSum(['1200.10', '130.20', '0.20'])).toBe('₪1,331')
+    expect(formatShekelsSum([])).toBe('₪0')
+  })
+
+  it('refuses text that is not a number', () => {
+    expect(() => formatShekelsSum(['1.00', 'abc'])).toThrow('not an amount: abc')
   })
 })
 

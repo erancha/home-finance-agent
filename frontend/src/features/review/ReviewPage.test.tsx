@@ -140,11 +140,29 @@ describe('ReviewPage', () => {
     emit('review.status', { status: 'running' }, 4)
     emit('review.totals', totals, 5)
     emit('review.report', { text: 'Budget review for 2026-09' }, 6)
-    expect(screen.getByText('121 / 100')).toBeInTheDocument()
+    expect(screen.getByText('₪121 / ₪100')).toBeInTheDocument()
     expect(screen.getByText('Budget review for 2026-09')).toBeInTheDocument()
     expect(progress()).toHaveAttribute('aria-expanded', 'true')
     emit('review.status', { status: 'completed' }, 7)
     expect(progress()).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('keeps the raw transactions folded when a reload replays a review that already completed', async () => {
+    standing = { id: 'r1', status: 'completed' }
+    render(<ReviewPage />)
+    await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1))
+    const low = { ...row, confidence: 'low' as const }
+    emit('review.status', { status: 'running' }, 1)
+    emit('transactions.batch', { agent: 'amex', month: '2026-09', count: 1, transactions: [low] }, 2)
+    emit('review.question', { questions: [question] }, 3)
+    emit('review.status', { status: 'waiting' }, 4)
+    emit('review.status', { status: 'running' }, 5)
+    emit('review.totals', totals, 6)
+    emit('review.report', { text: 'Budget review for 2026-09' }, 7)
+    emit('review.status', { status: 'completed' }, 8)
+
+    expect(await screen.findByRole('button', { name: 'Raw transactions (1)' }))
+      .toHaveAttribute('aria-expanded', 'false')
   })
 
   it('lists the raw transactions of the category chosen in the totals, and all from Totals', async () => {
@@ -337,7 +355,7 @@ describe('ReviewPage', () => {
     expect(screen.getAllByRole('combobox')).toHaveLength(1)
     expect(screen.getByRole('button', { name: 'health' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Standing orders' }).closest('p'))
-      .toHaveTextContent('Standing orders 250 across categories')
+      .toHaveTextContent('Standing orders ₪250 across categories')
     expect(report()).toHaveClass('out-of-sync')
 
     await user.click(box)
