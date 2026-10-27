@@ -3,9 +3,9 @@
 People sign in to the home finance agent and to the card agents it calls with their Google account,
 and there is no other way in. Every piece of data belongs to the person who signed in. The two sides
 trust each other through one explicit step: the home finance agent is registered with each card
-agent as a caller. "The card agent" below is any card agent the home finance agent calls; the demo
-has one, amex-agent. This page explains how that works and how to set up the Google side; the
-message details are in [a2a-contract.md](a2a-contract.md).
+agent as a caller. "The card agent" below is any card agent the home finance agent calls; amex-agent
+is the demo's. This page explains how that works and how to set up the Google side; the message
+details are in [a2a-contract.md](a2a-contract.md).
 
 **Contents:** [The design in six points](#the-design-in-six-points) ·
 [Setting up Google](#setting-up-google) ·

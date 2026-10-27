@@ -5,9 +5,10 @@
 The home finance agent is a multi-user, scalable AI agent that reviews a household member's monthly
 card spending. It asks each card's service, over the open
 [A2A (Agent2Agent) protocol](https://a2a-protocol.org), for the month's charges, adds them up
-against a budget, asks you only what it cannot decide, and writes a short summary. This demo has one
-card service, [amex-agent](https://github.com/erancha/amex-agent), for an American Express card. You
-sign in to both with your Google account; each person sees only their own reviews and statements.
+against a budget, asks you only what it cannot decide, and writes a short summary.
+[amex-agent](https://github.com/erancha/amex-agent), for an American Express card, is the demo's
+card agent; any card agent offering the same contract connects the same way, in any language. You
+sign in to each with your Google account; each person sees only their own reviews and statements.
 
 A2A calls every party in the conversation an agent, and these docs follow its naming (card agent,
 home finance agent). The review itself follows a fixed plan written in code, with you in the loop
@@ -34,8 +35,10 @@ flowchart LR
   end
   subgraph CARDS[Card agents]
     A["amex-agent  - the demo's card agent, for American Express Israel cardholders; a separate GitHub repo, simulating another operator"]
+    B["another card agent, any language, offering the same contract"]
   end
   G -->|A2A monthly-transactions<br/>your token + caller secret| A
+  G -->|same contract| B
   classDef user fill:#f3f4f6,stroke:#4b5563,color:#111827
   classDef hfa fill:#dbeafe,stroke:#1d4ed8,color:#111827
   classDef amx fill:#dcfce7,stroke:#15803d,color:#111827
@@ -44,6 +47,7 @@ flowchart LR
   class P,M,G,DB hfa
   class L llm
   class A amx
+  class B amx
   style HFA fill:#eff6ff,stroke:#1d4ed8
   style CARDS fill:#f0fdf4,stroke:#15803d
 ```
