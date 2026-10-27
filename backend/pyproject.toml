@@ -37,6 +37,7 @@ dev = [
     "types-PyYAML>=6",
     "pip-tools>=7.6",
     "packaging>=24",
+    "jsonschema>=4.23",
 ]
 
 [build-system]

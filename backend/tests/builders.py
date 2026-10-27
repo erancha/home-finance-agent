@@ -33,3 +33,27 @@ def make_tx(**overrides: Any) -> Transaction:
         Confidence.LOW if base["category"] == UNCATEGORIZED else Confidence.HIGH,
     )
     return Transaction(**base)
+
+
+ROW: dict[str, Any] = {
+    "id": "201939841",
+    "transactionDate": "2026-09-05",
+    "chargeDate": "2026-10-02",
+    "merchant": "Super-Pharm",
+    "rawMerchant": "סופר פארם בעמ 123",
+    "amount": 86.9,
+    "originalAmount": None,
+    "originalCurrency": None,
+    "standingOrder": False,
+    "abroad": False,
+    "installment": None,
+    "category": "uncategorized",
+    "confidence": "low",
+}
+
+
+def transactions_batch(month: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"month": month, "currency": "ILS", "transactions": rows}
+
+
+STATEMENT_MISSING_DATA = {"reason": "statement-missing", "month": "2026-11", "user": "1000"}

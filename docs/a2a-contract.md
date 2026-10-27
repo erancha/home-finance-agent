@@ -9,8 +9,9 @@ agent, documents how it implements the contract in its own repo
 
 **Contents:** [Transport](#transport) · [Agent card](#agent-card) · [Request](#request) ·
 [Stream events](#stream-events) · [Transaction rows](#transaction-rows) ·
-[Taxonomy](#taxonomy) · [Input required and continue](#input-required-and-continue) ·
-[Authentication](#authentication) · [Failures](#failures)
+[Taxonomy](#taxonomy) · [Schemas](#schemas) ·
+[Input required and continue](#input-required-and-continue) · [Authentication](#authentication) ·
+[Failures](#failures)
 
 ## Transport
 
@@ -132,6 +133,17 @@ Fixed, shared by every card agent, and listed in each agent's skill description:
 `shopping`, `entertainment`, `travel`, `gifts`, `other`, `uncategorized`.
 
 A value outside the list fails the fetch.
+
+## Schemas
+
+The request, the artifact data part and the pause data part are published as JSON Schemas (draft
+2020-12): [request.schema.json](a2a-contract/request.schema.json),
+[rows.schema.json](a2a-contract/rows.schema.json) and
+[pause.schema.json](a2a-contract/pause.schema.json), each with a `$id` at its raw GitHub URL. Date
+and month patterns refuse impossible values on their own, and dates are also checked as calendar
+dates when the validator enables format assertion. The home finance agent's client validates in
+code and a test holds the schemas to it; a card agent pins a copy and validates what it sends in its
+own tests.
 
 ## Input required and continue
 

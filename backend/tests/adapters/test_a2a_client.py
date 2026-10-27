@@ -52,7 +52,7 @@ from hfm.ports.card_agent import (
     TaskFailed,
     TransactionsBatch,
 )
-from tests.builders import make_tx
+from tests.builders import ROW, STATEMENT_MISSING_DATA, make_tx, transactions_batch
 
 AGENT = AgentConfig(
     name="amex", url="http://agent", token="secret", browser_url="http://localhost:8020"
@@ -62,22 +62,6 @@ CONTEXT_ID = "ctx-1"
 USER_TOKEN = "eyJ-the-persons-id-token"
 SECRET_HEADER = "X-Caller-Secret"
 GOOGLE_DISCOVERY = "https://accounts.google.com/.well-known/openid-configuration"
-
-ROW: dict[str, Any] = {
-    "id": "201939841",
-    "transactionDate": "2026-09-05",
-    "chargeDate": "2026-10-02",
-    "merchant": "Super-Pharm",
-    "rawMerchant": "סופר פארם בעמ 123",
-    "amount": 86.9,
-    "originalAmount": None,
-    "originalCurrency": None,
-    "standingOrder": False,
-    "abroad": False,
-    "installment": None,
-    "category": "uncategorized",
-    "confidence": "low",
-}
 
 
 def make_card(
@@ -180,8 +164,7 @@ def status_chunk(state: int, parts: Sequence[Part] = ()) -> StreamResponse:
 
 
 def transactions_artifact(month: str, rows: list[dict[str, Any]]) -> Artifact:
-    data = {"month": month, "currency": "ILS", "transactions": rows}
-    return Artifact(artifact_id="a", parts=[new_data_part(data)])
+    return Artifact(artifact_id="a", parts=[new_data_part(transactions_batch(month, rows))])
 
 
 def artifact_chunk(month: str, rows: list[dict[str, Any]]) -> StreamResponse:
@@ -193,7 +176,6 @@ def artifact_chunk(month: str, rows: list[dict[str, Any]]) -> StreamResponse:
 
 
 QUESTION = "No statement for 2026-11 yet; upload it and continue."
-STATEMENT_MISSING_DATA = {"reason": "statement-missing", "month": "2026-11"}
 STATEMENT_MISSING = [new_text_part(QUESTION), new_data_part(STATEMENT_MISSING_DATA)]
 REF = TaskRef(agent="amex", task_id=TASK_ID, context_id=CONTEXT_ID)
 
