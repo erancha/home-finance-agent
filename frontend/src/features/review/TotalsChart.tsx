@@ -1,6 +1,7 @@
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import type { CategoryTotal } from '../../api/types.ts'
 import { formatShekels, formatShekelsSum } from '../../format.ts'
+import { CATEGORY_MEANINGS } from './categoryMeanings.ts'
 
 interface Props {
   totals: CategoryTotal[]
@@ -150,6 +151,7 @@ export function TotalsChart({
                       type="button"
                       className="legend-button"
                       aria-pressed={selected === total.category}
+                      title={CATEGORY_MEANINGS[total.category]}
                       onClick={() => onSelect(total.category)}
                     >
                       {total.category}

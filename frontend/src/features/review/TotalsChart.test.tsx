@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
+import { CATEGORY_MEANINGS } from './categoryMeanings.ts'
 import { TotalsChart } from './TotalsChart.tsx'
 
 const totals = [
@@ -41,6 +42,14 @@ describe('TotalsChart', () => {
     chart({ withExpected: true })
     expect(screen.getByRole('rowheader', { name: 'Total, with expected charges' }))
       .toBeInTheDocument()
+  })
+
+  it('explains each category in a tooltip on its name, as the contract defines it', () => {
+    chart()
+    expect(legendRow('groceries').querySelector('button'))
+      .toHaveAttribute('title', CATEGORY_MEANINGS.groceries)
+    expect(legendRow('travel').querySelector('button'))
+      .toHaveAttribute('title', CATEGORY_MEANINGS.travel)
   })
 
   it('draws one slice per category with spend and summarizes them for assistive technology', () => {

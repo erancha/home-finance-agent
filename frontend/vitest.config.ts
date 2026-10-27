@@ -3,6 +3,8 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   plugins: [react()],
+  // A test reads the A2A contract, which lives in docs/ at the repository root.
+  server: { fs: { allow: ['..'] } },
   test: {
     environment: 'jsdom',
     pool: 'threads',
