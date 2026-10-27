@@ -204,7 +204,7 @@ describe('ReviewPage', () => {
     emit('review.report', { text: 'Budget review for 2026-09' }, 3)
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
     emit('review.status', { status: 'completed' }, 4)
-    const category = screen.getByRole('combobox', { name: 'Category for שופרסל on 2026-09-02' })
+    const category = screen.getByRole('combobox', { name: 'Category for שופרסל on 02/09/2026' })
     expect(category).toHaveValue('dining')
     await user.selectOptions(category, 'groceries')
     await user.click(screen.getByRole('button', { name: 'Apply categories (1 merchant)' }))

@@ -10,8 +10,8 @@ describe('EventFeed', () => {
       <EventFeed events={[{ type: 'agent.status', data: status }]} working={false} inProgress />,
     )
     expect(screen.getByRole('listitem'))
-      .toHaveTextContent(/^2026\/10\/14 09:05:07 amex: TASK_STATE_WORKING$/)
-    expect(screen.getByText('2026/10/14 09:05:07')).toHaveClass('feed-time')
+      .toHaveTextContent(/^14\/10\/2026 09:05:07 amex: TASK_STATE_WORKING$/)
+    expect(screen.getByText('14/10/2026 09:05:07')).toHaveClass('feed-time')
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
@@ -23,7 +23,7 @@ describe('EventFeed', () => {
       <EventFeed events={[{ type: 'agent.status', data: status }]} working={false} inProgress />,
     )
     expect(screen.getByRole('listitem'))
-      .toHaveTextContent(`2026/10/14 09:05:07 amex: TASK_STATE_INPUT_REQUIRED — ${text}`)
+      .toHaveTextContent(`14/10/2026 09:05:07 amex: TASK_STATE_INPUT_REQUIRED — ${text}`)
     expect(screen.getByText(text)).toHaveClass('error')
     const working = { agent: 'amex', state: 'TASK_STATE_WORKING', text: 'Parsing', at }
     render(
@@ -37,7 +37,7 @@ describe('EventFeed', () => {
     const status = { agent: 'amex', state: 'TASK_STATE_WORKING', text: 'Parsing', at }
     render(<EventFeed events={[{ type: 'agent.status', data: status }]} working inProgress />)
     const [line] = screen.getAllByRole('listitem')
-    expect(line).toHaveTextContent(/^2026\/10\/14 09:05:07 amex: TASK_STATE_WORKING — Parsing$/)
+    expect(line).toHaveTextContent(/^14\/10\/2026 09:05:07 amex: TASK_STATE_WORKING — Parsing$/)
     expect(line).toContainElement(screen.getByRole('status', { name: 'Working' }))
   })
 

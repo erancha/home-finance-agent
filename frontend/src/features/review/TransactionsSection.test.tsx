@@ -97,7 +97,7 @@ describe('TransactionsSection', () => {
     )
     const cells = within(screen.getAllByRole('row')[1]).getAllByRole('cell')
     expect(cells.map((c) => c.textContent)).toEqual([
-      '2026-09-02', 'amex', 'שופרסל', '₪1,121', '3 of 10', 'uncategorized', 'low',
+      '02/09/2026', 'amex', 'שופרסל', '₪1,121', '3 of 10', 'uncategorized', 'low',
     ])
     expect(cells[2]).toHaveAttribute('title', 'SHUFERSAL 12')
     expect(cells[6]).toHaveClass('confidence-low')

@@ -6,7 +6,7 @@ import type {
   TotalsData,
   Transaction,
 } from '../../api/types.ts'
-import { formatShekels } from '../../format.ts'
+import { formatDate, formatShekels } from '../../format.ts'
 import { transactionDetails } from './transactionDetails.ts'
 
 /** A "continue" can resend rows already shown, so rows are unique by agent and id. */
@@ -132,7 +132,7 @@ export function TransactionsSection({
           <tbody>
             {transactions.map((t) => (
               <tr key={`${t.agent}/${t.id}`} className={isExpected.has(t) ? 'expected' : undefined}>
-                <td>{t.transactionDate}</td>
+                <td>{formatDate(t.transactionDate)}</td>
                 <td>{t.agent}</td>
                 <td
                   dir="auto"
@@ -150,7 +150,7 @@ export function TransactionsSection({
                 <td>
                   {editable && !isExpected.has(t) ? (
                     <select
-                      aria-label={`Category for ${t.merchant} on ${t.transactionDate}`}
+                      aria-label={`Category for ${t.merchant} on ${formatDate(t.transactionDate)}`}
                       value={pending[t.merchantKey] ?? counted(t)}
                       onChange={(e) => {
                         setPending((current) => ({ ...current, [t.merchantKey]: e.target.value }))

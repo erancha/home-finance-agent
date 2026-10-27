@@ -43,8 +43,8 @@ describe('QuestionCard', () => {
     const table = screen.getByRole('table', { name: 'Charges at שופרסל' })
     const rows = within(table).getAllByRole('row').slice(1)
     expect(rows.map((r) => within(r).getAllByRole('cell').map((c) => c.textContent))).toEqual([
-      ['2026-09-02', 'amex', 'SHUFERSAL', '₪121', ''],
-      ['2026-09-17', 'amex', 'SHUFERSAL ONLINE', '₪37', '10 USD, 2 of 3, abroad'],
+      ['02/09/2026', 'amex', 'SHUFERSAL', '₪121', ''],
+      ['17/09/2026', 'amex', 'SHUFERSAL ONLINE', '₪37', '10 USD, 2 of 3, abroad'],
     ])
   })
 

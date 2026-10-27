@@ -29,10 +29,23 @@ export function formatShekelsSum(texts: string[]): string {
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
-/** An ISO time as local `YYYY/MM/DD HH:MM:SS`. */
+const dayMonthYear = (day: string, month: string, year: string) => `${day}/${month}/${year}`
+
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/
+
+/** An ISO date as `DD/MM/YYYY`. The text is split, not parsed as a time, so the day never shifts
+ * with the browser's time zone. */
+export function formatDate(iso: string): string {
+  const match = ISO_DATE.exec(iso)
+  if (match === null) throw new Error(`not a date: ${iso}`)
+  const [, year, month, day] = match
+  return dayMonthYear(day, month, year)
+}
+
+/** An ISO time as local `DD/MM/YYYY HH:MM:SS`. */
 export function formatTimestamp(iso: string): string {
   const t = new Date(iso)
   if (Number.isNaN(t.getTime())) throw new Error(`not a time: ${iso}`)
-  const date = `${t.getFullYear()}/${pad(t.getMonth() + 1)}/${pad(t.getDate())}`
+  const date = dayMonthYear(pad(t.getDate()), pad(t.getMonth() + 1), String(t.getFullYear()))
   return `${date} ${pad(t.getHours())}:${pad(t.getMinutes())}:${pad(t.getSeconds())}`
 }

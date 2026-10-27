@@ -3,7 +3,7 @@ import { SIGN_IN_REQUIRED } from '../../api/types.ts'
 import type { Answers, Question, Transaction, User } from '../../api/types.ts'
 import { GoogleSignIn } from '../../auth/GoogleSignIn.tsx'
 import { displayName } from '../../auth/SessionHeader.tsx'
-import { formatShekels } from '../../format.ts'
+import { formatDate, formatShekels } from '../../format.ts'
 import { transactionDetails } from './transactionDetails.ts'
 
 interface Props {
@@ -53,7 +53,7 @@ function MerchantRows({
       <tbody>
         {transactions.map((t) => (
           <tr key={`${t.agent}/${t.id}`}>
-            <td>{t.transactionDate}</td>
+            <td>{formatDate(t.transactionDate)}</td>
             <td>{t.agent}</td>
             <td dir="auto">{t.rawMerchant}</td>
             <td>{formatShekels(t.amount)}</td>
