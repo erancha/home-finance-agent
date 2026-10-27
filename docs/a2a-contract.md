@@ -3,9 +3,10 @@
 This page is the contract every card agent offers the home finance agent, and the source of truth
 for it: a card agent that meets it is connected with `add-card-agent.sh` and no code change here.
 The home finance agent's A2A client enforces each point below, so a change on either side is
-checked against this list. amex-agent, the demo's card
-agent, documents how it implements the contract in its own repo
-([amex-agent/docs/a2a-contract.md](https://github.com/erancha/amex-agent/blob/main/docs/a2a-contract.md)).
+checked against this list. Each of the demo's card agents documents how it implements the contract
+in its own repo:
+[amex-agent/docs/a2a-contract.md](https://github.com/erancha/amex-agent/blob/main/docs/a2a-contract.md)
+and [cal-agent/docs/a2a-contract.md](https://github.com/erancha/cal-agent/blob/main/docs/a2a-contract.md).
 
 **Contents:** [Transport](#transport) · [Agent card](#agent-card) · [Request](#request) ·
 [Stream events](#stream-events) · [Transaction rows](#transaction-rows) ·

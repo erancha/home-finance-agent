@@ -6,8 +6,9 @@ The home finance agent is a multi-user, scalable AI agent that reviews a househo
 card spending. It asks each card's service, over the open
 [A2A (Agent2Agent) protocol](https://a2a-protocol.org), for the month's charges, adds them up
 against a budget, asks you only what it cannot decide, and writes a short summary.
-[amex-agent](https://github.com/erancha/amex-agent), for an American Express card, is the demo's
-card agent; any card agent offering the same contract connects the same way, in any language. You
+[amex-agent](https://github.com/erancha/amex-agent), for an American Express card, and
+[cal-agent](https://github.com/erancha/cal-agent), for a Cal card, are the demo's card agents, one
+in Java and one in Python; any card agent offering the same contract connects the same way. You
 sign in to each with your Google account; each person sees only their own reviews and statements.
 
 A2A calls every party in the conversation an agent, and these docs follow its naming (card agent,
@@ -34,8 +35,8 @@ flowchart LR
     G -->|numbers in, prose out| L["<b>LLM (Language Model)</b><br/>writes the report"]
   end
   subgraph CARDS[Card agents]
-    A["amex-agent  - the demo's card agent, for American Express Israel cardholders; a separate GitHub repo, simulating another operator"]
-    B["another card agent, any language, offering the same contract"]
+    A["amex-agent  - for American Express Israel cardholders; Java, a separate GitHub repo, simulating another operator"]
+    B["cal-agent  - for Cal cardholders; Python, a separate GitHub repo, the same contract"]
   end
   G -->|A2A monthly-transactions<br/>your token + caller secret| A
   G -->|same contract| B

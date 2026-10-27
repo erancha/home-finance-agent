@@ -68,5 +68,6 @@ the forwarded tokens were issued to that caller's sign-in; the URLs are where th
 where a person's browser goes. This agent fetches the card at the registered URL but calls the URL
 the card advertises, so the advertised one must be the one callers can reach.
 
-[amex-agent](https://github.com/erancha/amex-agent), the demo's card agent, follows this:
-its README's Getting started covers the registration and the hand-over.
+The demo's card agents, [amex-agent](https://github.com/erancha/amex-agent) and
+[cal-agent](https://github.com/erancha/cal-agent), follow this: each README's Getting started
+covers the registration and the hand-over.
