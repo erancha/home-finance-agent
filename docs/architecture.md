@@ -42,8 +42,9 @@ reviews, and the reports already written, so the same totals cost no second mode
 ## Configuration
 
 The environment and `backend/.env` carry this agent's own settings; the card agents live in
-`backend/card-agents.yaml`, written by the scripts, and the budget in `config/budget.yaml`. A
-missing or malformed required setting stops startup rather than defaulting.
+`backend/card-agents.yaml`, written by the scripts, and the person's budget in `config/budget.yaml`,
+started from a committed example. A missing or malformed required setting stops startup rather
+than defaulting.
 [architecture/configuration.md](architecture/configuration.md)
 
 ## Codebase structure

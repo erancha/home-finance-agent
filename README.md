@@ -105,8 +105,10 @@ that contract. Details and the reasoning behind them:
 Requires **Docker**, **Python 3.12+** and **Node.js 22+**. Everything here is this repo's own; a
 card agent is deployed from its own repo and connected at the end.
 
-1. **The env file.** `./scripts/init-env.sh` writes `backend/.env`; every key in it is explained
-   in [backend/.env.example](backend/.env.example). The next two steps fill in the two it needs.
+1. **The env file and the budget.** `./scripts/init-env.sh` writes `backend/.env`; every key in it
+   is explained in [backend/.env.example](backend/.env.example). The next two steps fill in the two
+   it needs. It also writes `config/budget.yaml`, your monthly limit per category, from the
+   committed example; the file is yours and stays out of git.
 2. **A Google OAuth client** in a Google Cloud project of its own, with `http://localhost:8010` as
    the authorized JavaScript origin. [docs/sign-in.md](docs/sign-in.md#setting-up-google) walks
    through the console. Add every household member's Google account as a test user: Google signs in
@@ -159,7 +161,7 @@ All live in `scripts/`; run with `--help` for full usage.
 
 | Script | Purpose |
 |---|---|
-| `init-env.sh` | Create `backend/.env` and an empty card-agent registry; `--force` overwrites the env file. |
+| `init-env.sh` | Create `backend/.env`, an empty card-agent registry and `config/budget.yaml` from its example; `--force` overwrites the env file only. |
 | `add-card-agent.sh` | Connect a card agent, or replace its entry, in `backend/card-agents.yaml`. |
 | `start.sh` | Run database, Redis, migrations and the agent's replicas behind an nginx edge in Docker, or `--host` with the agent as a local process (the page is rebuilt when its sources changed); prints the Google client id a card agent registers this agent with. |
 | `docker-helper.sh` | Stop, follow logs, or show status of the Docker stack. |

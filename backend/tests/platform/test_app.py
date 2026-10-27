@@ -57,7 +57,7 @@ def settings(
         database_url=SecretStr(database_url),
         hfm_e2e=True,
         card_agents_file=registry,
-        budget_config=REPO_CONFIG / "budget.yaml",
+        budget_config=REPO_CONFIG / "budget.example.yaml",
         google_client_id=CLIENT_ID,
         auth_public_key_file=public_key,
         **extra,

@@ -14,7 +14,8 @@ Package `hfm` in `backend/src`: `platform → application → ports → domain`;
 
 ## Scripts
 
-- `./scripts/init-env.sh [--force]`: create `backend/.env` and an empty `backend/card-agents.yaml`.
+- `./scripts/init-env.sh [--force]`: create `backend/.env`, an empty `backend/card-agents.yaml` and
+  `config/budget.yaml` from its committed example; the budget is the person's and never committed.
 - `./scripts/add-card-agent.sh --name N --url U --browser-url B --secret S`: connect a card agent;
   the agent reads the registry at startup.
 - `./scripts/start.sh [--host]`: run db, redis, migrations and the agent replicas behind the

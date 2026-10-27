@@ -14,6 +14,9 @@ E2E_COMPOSE_FILE="$ROOT/docker-compose.e2e.yml"
 # CARD_AGENTS_FILE setting defaults to this path, relative to the repo root).
 REGISTRY_FILE_NAME=card-agents.yaml
 REGISTRY_FILE="$BACKEND/$REGISTRY_FILE_NAME"
+# The person's budget, never committed; init-env.sh starts it from the example beside it.
+BUDGET_FILE="$ROOT/config/budget.yaml"
+BUDGET_EXAMPLE="$ROOT/config/budget.example.yaml"
 # Print the calling script's header comment block as --help text (single source of usage docs).
 print_help() { awk 'NR==1 {next} /^#/ {sub(/^# ?/, ""); print; next} {exit}' "$0"; }
 

@@ -2,8 +2,9 @@
 
 The home finance agent reads three kinds of configuration, each kept where its owner edits it: its
 own settings in the environment and `backend/.env`, the connected card agents in
-`backend/card-agents.yaml`, and the budget in `config/budget.yaml`. A missing or malformed required
-value stops startup with its name, rather than letting the agent run on a default nobody chose.
+`backend/card-agents.yaml`, and the person's budget in `config/budget.yaml`. A missing or malformed
+required value stops startup with its name, rather than letting the agent run on a default nobody
+chose.
 
 Every setting is explained in one place, [backend/.env.example](../../backend/.env.example): the
 required ones are uncommented, and every optional one is commented out at its default.
@@ -27,9 +28,10 @@ machine is `http://host.docker.internal:<port>`; with `start.sh --host` it is
 
 ## The budget
 
-`config/budget.yaml` holds the currency and a monthly limit per category. Every category must come
-from the shared category list the card agents categorize against; an unknown one stops startup
-instead of quietly totalling to zero.
+`config/budget.yaml` holds the currency and a monthly limit per category. It is the person's own
+and stays out of the repository; `init-env.sh` starts it from `config/budget.example.yaml`, which
+is committed. Every category must come from the shared category list the card agents categorize
+against; an unknown one stops startup instead of quietly totalling to zero.
 
 ## Other devices on your network
 

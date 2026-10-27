@@ -92,6 +92,6 @@ def test_a_missing_budget_file_raises_file_not_found(tmp_path: Path) -> None:
         load_budget(tmp_path / "none.yaml")
 
 
-def test_shipped_budget_file_loads() -> None:
+def test_the_budget_example_loads() -> None:
     config = Path(__file__).parents[3] / "config"
-    assert "groceries" in load_budget(config / "budget.yaml").limits
+    assert "groceries" in load_budget(config / "budget.example.yaml").limits

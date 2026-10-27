@@ -5,6 +5,7 @@ __pycache__/
 .env.*
 !.env.example
 backend/card-agents.yaml
+config/budget.yaml
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
