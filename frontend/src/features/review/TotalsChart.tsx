@@ -168,7 +168,7 @@ export function TotalsChart({
             })}
           </tbody>
           <tfoot>
-            <tr>
+            <tr className="summary">
               <th scope="row">{withExpected ? 'Total, with expected charges' : 'Total'}</th>
               <td className="num">{formatShekelsSum(totals.map((t) => t.spent))}</td>
               <td></td>
@@ -181,7 +181,7 @@ export function TotalsChart({
         <button type="button" className="legend-button" onClick={onSelectStandingOrders}>
           Standing orders
         </button>{' '}
-        {formatShekels(standingOrders)}{' '}
+        <strong className="summary">{formatShekels(standingOrders)}</strong>{' '}
         <span className="muted">across categories</span>
       </p>
     </section>

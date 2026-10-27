@@ -86,6 +86,11 @@ td[dir="auto"] { text-align: left; }
 .totals-legend td, .totals-legend th { white-space: nowrap; }
 .totals-legend .num { text-align: right; font-variant-numeric: tabular-nums; }
 .totals-legend tr.over { color: var(--bad); font-weight: 600; }
+/* The month's total and the standing-order spend are the two numbers the review is about. */
+.summary { font-weight: 700; font-size: 1.1em; }
+.totals-legend tfoot th, .totals-legend tfoot td {
+  border-top: 2px solid var(--fg); padding-top: 0.4rem;
+}
 .chip { display: inline-block; width: 0.75rem; height: 0.75rem; border-radius: 0.2rem; }
 .chart-tooltip { background: var(--bg); border: 1px solid var(--line); padding: 0.3rem 0.5rem; }
 .muted { color: var(--muted); }

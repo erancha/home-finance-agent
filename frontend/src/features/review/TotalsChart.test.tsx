@@ -34,8 +34,9 @@ function legendRow(category: string): HTMLElement {
 describe('TotalsChart', () => {
   it("ends the legend with the month's total, the categories added up", () => {
     chart()
-    expect(screen.getByRole('rowheader', { name: 'Total' }).closest('tr'))
-      .toHaveTextContent('Total₪1,330')
+    const row = screen.getByRole('rowheader', { name: 'Total' }).closest('tr')
+    expect(row).toHaveTextContent('Total₪1,330')
+    expect(row).toHaveClass('summary')
   })
 
   it('names the total as including the expected charges when they are counted', () => {
@@ -113,6 +114,7 @@ describe('TotalsChart', () => {
     expect(screen.getByText('Standing orders').closest('p')).toHaveTextContent(
       'Standing orders ₪1,308 across categories',
     )
+    expect(screen.getByText('₪1,308')).toHaveClass('summary')
     await userEvent.click(screen.getByRole('button', { name: 'Standing orders' }))
     expect(onSelectStandingOrders).toHaveBeenCalledOnce()
   })
