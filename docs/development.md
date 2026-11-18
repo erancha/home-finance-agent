@@ -97,21 +97,21 @@ Docker runs the stack; `deploy.sh` and `docker-helper.sh` stop when it is not re
   manager answers through the edge. It prints this agent's Google client id, which a card agent's
   operator registers it as a caller with. Then open http://localhost:8010 and sign in with a
   Google account listed as a test user.
-- `deploy.sh --ec2` — deploys to the EC2 instance of the loan-simulator stack, in the account of
-  `aws-config.sh`, as a guest beside the other Docker Compose repos; the loan-simulator stack must
-  be deployed first from its repo. `aws-config.sh` must name the account and region of
-  loan-simulator's stack, since a guest's stacks import the host stack's exports. It needs the AWS
-  CLI, `ssh` and `curl`. It creates or updates this repo's CloudFormation stack of
+- `deploy.sh --ec2` — deploys to an EC2 instance in the account of `aws-config.sh`. The stack is a
+  host, with an instance of its own, while `EC2_HOST_STACK` of `params.sh` is blank. Set to another
+  Docker Compose repo's host stack, it is a guest on that instance, which is deployed first from its
+  repo; `aws-config.sh` then names that stack's account and region, since a guest's stacks import
+  the host stack's exports ([ADR 0008](adr/0008-any-docker-repo-can-host-the-instance.md)). It needs
+  the AWS CLI, `ssh` and `curl`. It creates or updates this repo's CloudFormation stack of
   [`template-ec2.yaml`](../scripts/template-ec2.yaml) (the edge's port on the instance and a
   CloudFront distribution), builds the images here for ARM, loads them into the instance's Docker
   daemon over SSH and starts the stack there with
   [`docker-compose.ec2.yml`](../docker-compose.ec2.yml), and prints the CloudFront address to open
   and to register with Google ([Sign-in](sign-in.md#setting-up-google)). The git branch selects the
-  stack: `main` deploys `home-finance-agent` on the `loan-simulator` instance, any other branch
-  `home-finance-agent-fb` on the `loan-simulator-fb` instance; an exported `STACK_NAME` wins. Every
-  deploy, host or guest, also makes sure the instance has a 1 GB swap file (`prepare_ec2_host` in
-  `lib/ec2.sh`), so a burst beyond the instance's 2 GB of memory slows the stacks instead of killing
-  a container.
+  stack: `main` deploys `home-finance-agent`, any other branch `home-finance-agent-fb`, a guest on
+  the host's `-fb` instance; an exported `STACK_NAME` wins. Every deploy, host or guest, also makes
+  sure the instance has a 1 GB swap file (`prepare_ec2_host` in `lib/ec2.sh`), so a burst beyond the
+  instance's 2 GB of memory slows the stacks instead of killing a container.
 - [`docker-helper.sh`](../scripts/docker-helper.sh) — `--stop [--volumes]`,
   `--logs [-e] [service...]` or `--ps` for the stack; `--volumes` also removes the database.
   With `--ec2` as its first argument it acts on the instance, and `--ec2 --delete-stack`

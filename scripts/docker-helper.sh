@@ -13,8 +13,8 @@
 #   ./scripts/docker-helper.sh --ps
 #       Show the containers' status.
 #   ./scripts/docker-helper.sh --ec2 --delete-stack
-#       Delete this repo's EC2 stack of the git branch: its port on the loan-simulator instance and
-#       its CloudFront distribution, after asking to type the stack's name. Its containers and the
+#       Delete this repo's EC2 stack of the git branch: its port on the instance and its
+#       CloudFront distribution, after asking to type the stack's name. Its containers and the
 #       database volume stay on the instance; run --ec2 --stop [--volumes] first to remove them.
 #   -h, --help
 set -euo pipefail

@@ -94,9 +94,10 @@ from the latest events alone. [architecture/events.md](architecture/events.md)
 ## Scaling
 
 The stack runs on one machine with Docker Compose
-([ADR 0005](adr/0005-docker-compose-stack.md)), a workstation or the loan-simulator repo's EC2
-instance, where it is a guest behind a CloudFront distribution of its own
-([ADR 0007](adr/0007-guest-on-the-loan-simulator-instance.md)): several replicas of the backend
+([ADR 0005](adr/0005-docker-compose-stack.md)), a workstation or an EC2 instance behind a
+CloudFront distribution of its own, which the stack hosts or joins as a guest of another Docker
+Compose repo's stack ([ADR 0007](adr/0007-guest-on-the-loan-simulator-instance.md),
+[ADR 0008](adr/0008-any-docker-repo-can-host-the-instance.md)): several replicas of the backend
 behind an nginx edge, all on one Postgres and one Redis, and any replica can serve any request
 ([ADR 0006](adr/0006-replicas-behind-an-edge.md)). The concerns that follow are each a GitHub
 label beside `scalability`: **scaling safety**, that it is safe to run more than one replica

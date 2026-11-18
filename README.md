@@ -99,9 +99,9 @@ agent, deployed from its own repo, though this agent starts and signs you in wit
    agent calls, the URL your browser opens its pages at and the secret:
    `./scripts/tools/add-card-agent.sh --name <name> --url <url> --browser-url <url> --secret
    <secret>`, then run `./scripts/deploy.sh` again, since the registry is read at startup.
-6. To run the stack on AWS instead, as a guest on the EC2 instance of the
-   [loan-simulator](https://github.com/erancha/loan-simulator) stack behind a CloudFront
-   distribution of its own, deploy that stack first, then run `./scripts/deploy.sh --ec2`. It
+6. To run the stack on AWS instead, on an EC2 instance behind a CloudFront distribution of its
+   own, run `./scripts/deploy.sh --ec2`: on an instance of its own, or as a guest on another
+   Docker Compose repo's instance when `EC2_HOST_STACK` of `params.sh` names that repo's stack. It
    also names the access key pair and region to fill in in `aws-config.sh`, and at the end
    prints the CloudFront address to add to the Google client. The instance's card agents go into
    their own registry with `tools/add-card-agent.sh --ec2`

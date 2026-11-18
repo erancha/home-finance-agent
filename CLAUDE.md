@@ -47,7 +47,7 @@ than the license contact (`PUBLISHED_SETTINGS` of `lib/settings-guard.sh`).
   predicates after the agent name (`amex could not be reached at ...`).
 - Before any AWS work, read this account's inventory, the
   `aws-account-inventory-<account ID>.md` under `/mnt/c/Projects/-- docs --/` that lists
-  loan-simulator: the instance belongs to that repo's stack, and this repo's stack is a guest.
+  the stacks deployed there and which one hosts the instance.
 - `test.sh [all|backend|frontend|e2e [--amex-dir D]]` (aliases `be`, `fe`) — the whole quality
   gate: bash syntax check and the shell tests of `scripts/tests/`, ruff, mypy, import-linter and
   pytest for `backend/`; oxlint, Vitest, `tsc` and the Vite build for `frontend/`. `e2e` is
@@ -57,12 +57,13 @@ than the license contact (`PUBLISHED_SETTINGS` of `lib/settings-guard.sh`).
   `params.sh` and `aws-config.sh` from its `.example.sh`, with a generated database password,
   plus both empty registries and `config/budget.yaml`; an existing settings file is kept unless
   `--force` is given, a registry or budget always.
-- `deploy.sh` — runs `init-env.sh` first and stops on a list of every required setting still
-  blank, then builds and runs Postgres (with its schema migration), Redis, two manager replicas
-  and the nginx edge in Docker Compose, returns once the page answers on 8010, and prints the
-  Google client id a card agent registers this agent with; `--ec2` does it on the loan-simulator
-  stack's EC2 instance, as a guest behind its own CloudFront (`template-ec2.yaml`,
-  `docker-compose.ec2.yml`), in the account of the gitignored `lib/aws-config.sh`.
+- `deploy.sh` — runs `init-env.sh` first and stops on a list of every required setting still blank,
+  then builds and runs Postgres (with its schema migration), Redis, two manager replicas and the
+  nginx edge in Docker Compose, returns once the page answers on 8010, and prints the Google client
+  id a card agent registers this agent with; `--ec2` does it on an EC2 instance, its own or another
+  repo's as a guest (`EC2_HOST_STACK` of `params.sh`), behind its own CloudFront
+  (`template-ec2.yaml`, `docker-compose.ec2.yml`), in the account of the gitignored
+  `lib/aws-config.sh`.
 - `docker-helper.sh [--ec2]` — `--stop [--volumes]`, `--logs [-e] [service...]`, `--ps`;
   `--ec2 --delete-stack` deletes this repo's EC2 stack.
 - `lib/ec2.sh` — the EC2 target: the stack's deploy, SSH with an Instance Connect key, Compose

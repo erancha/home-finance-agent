@@ -4,8 +4,7 @@
 # and the nginx edge in Docker Compose, then return once the manager answers through the edge.
 #
 #   ./scripts/deploy.sh          on this machine's Docker
-#   ./scripts/deploy.sh --ec2    on the EC2 instance of the loan-simulator stack, as a guest
-#                                behind a CloudFront distribution of its own
+#   ./scripts/deploy.sh --ec2    on an EC2 instance, behind a CloudFront distribution of its own
 #   -h, --help                   show this help
 #
 # Before the manager starts, a one-shot container (the migrate service) brings the Postgres tables
@@ -27,10 +26,11 @@
 # at 127.0.0.1:DB_HOST_PORT.
 #
 # --ec2 also needs the access key pair and region in scripts/lib/aws-config.sh, and deploys to
-# the account its credentials belong to. The loan-simulator stack owns the instance and must be
-# deployed first from its repo. This script creates or updates this repo's CloudFormation stack of
-# scripts/template-ec2.yaml (the git branch selects it: home-finance-agent on main,
-# home-finance-agent-fb on any other branch, on loan-simulator-fb's instance): the edge's port in
+# the account its credentials belong to. The stack is the instance's host, unless EC2_HOST_STACK
+# of params.sh names another Docker Compose repo's host stack, deployed first from its repo: then
+# it is a guest on that stack's instance. This script creates or updates this repo's
+# CloudFormation stack of scripts/template-ec2.yaml (the git branch selects it:
+# home-finance-agent on main, home-finance-agent-fb on any other branch): the edge's port in
 # the instance's security group and a CloudFront distribution whose https address is the only way
 # in. It then builds the images here for ARM, loads them into the instance's Docker daemon over
 # SSH, and runs Compose against that daemon. The settings files and the registries stay on this
