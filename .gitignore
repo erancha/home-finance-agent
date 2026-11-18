@@ -1,21 +1,34 @@
 __pycache__/
 *.py[cod]
 .venv/
-.env
-.env.*
-!.env.example
-backend/card-agents.yaml
-config/budget.yaml
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 node_modules/
 dist/
-docs/superpowers/*
-.claude/
-CLAUDE.local.md
-.superpowers/
 
-# Local copies of a previous .env and registry, kept for reference; never committed.
+# The settings files init-env.sh creates from their committed .example.sh files.
+.env
+.env.*
+/scripts/lib/aws-config.sh
+/scripts/lib/secrets.sh
+/scripts/lib/params.sh
+# The throwaway Instance Connect key pair and the socket of the EC2 instance's Docker daemon.
+/scripts/lib/.ssh/
+# The card-agent registries, which hold the secrets the card agents issued to this agent.
+/backend/card-agents.yaml
+/backend/card-agents.ec2.yaml
+
+docs/superpowers/*
+.superpowers/
+.claude/*
+!.claude/skills/
+CLAUDE.local.md
+graphify-out/
+docs/senior-code-eval*.md
+
+# The person's monthly budget, started from config/budget.example.yaml; their own figures.
+/config/budget.yaml
+# Local copies of previous settings files and registries, kept for reference.
 backup/

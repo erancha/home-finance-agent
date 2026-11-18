@@ -1,0 +1,37 @@
+# What changes when the stack runs on the EC2 instance; scripts/deploy.sh --ec2 passes this file
+# after docker-compose.yml. The images are built on the deployer's machine for the instance's ARM
+# processor, under their own tags so the local stack's images stay as they are. The edge is
+# published on the instance's address at EC2_ORIGIN_PORT, where the security group admits only
+# CloudFront; Postgres stays on the instance's loopback interface and Redis and the manager are
+# not published. The services start again after the instance stops and starts.
+services:
+  db:
+    restart: unless-stopped
+
+  redis:
+    restart: unless-stopped
+
+  migrate:
+    image: hfm-manager:ec2
+    platform: linux/arm64
+
+  manager:
+    image: hfm-manager:ec2
+    platform: linux/arm64
+    restart: unless-stopped
+    # People reach the agent through CloudFront, over HTTPS that ends there, so the sign-in
+    # cookie is marked Secure although the agent sees plain HTTP.
+    environment:
+      HFM_HTTPS_ONLY: "true"
+
+  edge:
+    image: hfm-edge:ec2
+    platform: linux/arm64
+    restart: unless-stopped
+    ports: !override
+      - "${EC2_ORIGIN_PORT:?set in stack-params.sh}:8010"
+
+# The instance's registry: each card agent's browser address there is its CloudFront address.
+secrets:
+  card-agents:
+    environment: CARD_AGENTS_EC2_REGISTRY

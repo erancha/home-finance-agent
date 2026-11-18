@@ -1,4 +1,4 @@
-"""Process settings read from the environment and backend/.env, validated at startup."""
+"""Process settings read from the environment and the settings files, validated at startup."""
 from __future__ import annotations
 
 from functools import lru_cache
@@ -12,17 +12,32 @@ from hfm.adapters.config_files import REGISTRY_FILE_NAME
 from hfm.adapters.google_tokens import GOOGLE_ISSUER, GOOGLE_JWKS_URL
 from hfm.adapters.report_writer import SUPPORTED_PROVIDERS
 
+SETTINGS_FILES = (
+    "scripts/lib/stack-params.sh",
+    "scripts/lib/params.sh",
+    "scripts/lib/secrets.sh",
+)
+"""The stack's settings files, relative to the repo root; a later file wins over an earlier one.
+Each holds plain export KEY="value" lines, which the scripts source and this loader parses."""
+
 
 class Settings(BaseSettings):
-    """A blank variable counts as unset, so a blank OPTIONAL key keeps its default."""
+    """A blank variable counts as unset, so a blank required key fails and a blank optional key
+    keeps its default. SETTINGS_FILES are read from the working directory, so the agent started
+    from the repo root reads the files it shares with the scripts; a missing file is skipped, and
+    keys only the scripts or compose read are ignored here."""
 
     model_config = SettingsConfigDict(
-        env_file=".env", extra="ignore", frozen=True, env_ignore_empty=True
+        env_file=SETTINGS_FILES, extra="ignore", frozen=True, env_ignore_empty=True
     )
 
     database_url: SecretStr
     llm_model: str | None = None
     """"provider:model" for a supported provider; required unless hfm_e2e is set."""
+    hfm_https_only: bool = False
+    """True where people reach the agent only over HTTPS that ends before it, as behind CloudFront
+    on the EC2 instance, so the sign-in cookie is marked Secure although the agent sees plain
+    HTTP."""
     hfm_e2e: bool = False
     """Set by docker-compose.e2e.yml alone: the report is a canned text, and no model or API key is
     read, so the end-to-end test is deterministic and free."""
@@ -37,9 +52,9 @@ class Settings(BaseSettings):
     """Test only: a PEM public key that verifies tokens instead of the issuer's published keys,
     so the end-to-end test signs its own tokens and never reaches Google."""
     card_agents_file: Path = Path("backend") / REGISTRY_FILE_NAME
-    """The card-agent registry scripts/add-card-agent.sh writes; absent means no card agents.
-    Relative to the working directory, the repo root on the host; compose sets this key to the
-    path it mounts the file at."""
+    """The card-agent registry scripts/tools/add-card-agent.sh writes; absent means no card
+    agents. Relative to the working directory, the repo root on the host; compose sets this key to
+    the path of the secret that holds the registry."""
     budget_config: Path = Path("config/budget.yaml")
     hfm_frontend_dist: Path | None = None
     redis_url: SecretStr | None = None

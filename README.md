@@ -2,184 +2,145 @@
 
 [![CI](https://github.com/erancha/home-finance-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/erancha/home-finance-agent/actions/workflows/ci.yml)
 
-The home finance agent is a multi-user, scalable AI agent that reviews a household member's monthly
-card spending. It asks each card's service, over the open
+The home finance agent is a multi-user, scalable AI agent that reviews a household member's
+monthly card spending, in shekels. Each card has a card agent, a separate service that reads the
+card's monthly statement file, which you load on that service's own page, and places
+every charge in a category. The home finance agent asks each card agent, over the open
 [A2A (Agent2Agent) protocol](https://a2a-protocol.org), for the month's charges, adds them up
 against a budget, asks you only what it cannot decide, and writes a short summary.
-[amex-agent](https://github.com/erancha/amex-agent), for an American Express card, and
+[amex-agent](https://github.com/erancha/amex-agent), for an American Express Israel card, and
 [cal-agent](https://github.com/erancha/cal-agent), for a Cal card, are the demo's card agents, one
-in Java and one in Python; any card agent offering the same contract connects the same way. You
-sign in to each with your Google account; each person sees only their own reviews and statements.
+in Java and one in Python, each deployed from its own repo by its own operator; any card agent
+offering the same contract connects the same way. A2A calls every party in the conversation an
+agent, and these docs follow its naming; the review itself follows a fixed plan written in code,
+and a language model writes only the summary.
 
-A2A calls every party in the conversation an agent, and these docs follow its naming (card agent,
-home finance agent). The review itself follows a fixed plan written in code, with you in the loop
-for what it cannot decide; a language model writes only the summary. In fairness, a card agent is
-closer to a service than to an agent, and much of the exchange would fit plain HTTP streaming;
-[docs/why-a2a.md](docs/why-a2a.md) says what the protocol does and does not add here.
+**Contents:** [Overview](#overview) · [Tech stack](#tech-stack) · [Architecture](#architecture) ·
+[Getting started](#getting-started) · [Scripts](#scripts) · [Details](#details) ·
+[License](#license)
 
-**Contents:** [Architecture](#architecture) · [How a review runs](#how-a-review-runs) ·
-[Boundaries](#boundaries) · [Getting started](#getting-started) · [Scripts](#scripts) ·
-[Testing](#testing) · [License](#license)
+## Overview
+
+- You sign in with your Google account, to this agent and to each card agent; each person sees
+  only their own reviews and statements.
+- You pick a billing month, the month the card is charged (this month by default), and press
+  start. The page shows every step live as each card agent's charges stream in.
+- The review pauses on a question when it needs you: a statement that is not loaded yet, or a
+  merchant a card agent is unsure of. It waits as long as it takes, even across a restart.
+- A merchant question lists its charges, and you answer only the ones you recognize. A category
+  you choose is remembered for that merchant, so next month asks less.
+- A missing statement links to the card agent's statements page: sign in there with the same
+  Google account, load the file and press "continue", and the review goes on.
+- Totals per category are compared to your budget, and a language model turns the numbers into a
+  few sentences; the numbers themselves never come from it.
+- On a finished review, choosing a category in the spending pie, or the standing orders, lists
+  just those charges, and changing a merchant's category redoes the totals and the summary.
+- Mid-month, "Include expected charges" adds the standing orders and installments that your most
+  recent earlier review says are still to come, so the pie shows where the month is heading.
+
+## Tech stack
+
+- **Backend** — Python, FastAPI on uvicorn, LangGraph for the review's state machine
+- **A2A** — the official `a2a-sdk` client, streaming each card agent's month
+- **Model** — Anthropic or OpenAI through LangChain, chosen by one setting, to write the summary
+- **Storage** — Postgres 16 through SQLAlchemy and Alembic: reviews, their events, LangGraph's
+  checkpoints and the per-person memories; Redis carries live events between the replicas
+- **Frontend** — React and TypeScript built with Vite, charts with Recharts
+- **Auth** — Google sign-in; the backend checks the ID token with PyJWT and forwards it
+- **Runtime** — Docker Compose: two backend replicas behind an nginx edge, on a workstation or
+  on a shared EC2 instance behind CloudFront
+- **Tests** — pytest with Testcontainers, ruff, mypy and import-linter; Vitest with Testing
+  Library; an end-to-end review through amex-agent; GitHub Actions runs the gate
 
 ## Architecture
 
+The page talks to the backend replicas over REST and a live event stream, through an nginx edge;
+Redis carries each review's live events to whichever replica serves the stream. A review of one
+month runs in a review graph, a small state machine that pauses when it has a question for you
+and resumes with your answer; its state lives in Postgres, so a question waits across restarts.
+The backend is the A2A client of one card agent per card issuer, each opaque to it beyond the
+shared contract, and forwards your Google sign-in on every call.
+
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 520}}}%%
 flowchart LR
-  U((You)) -->|Sign in with Google| P
-  subgraph HFA[Home finance agent  - this repo]
-    direction LR
-    P[React page] -->|REST + SSE| M[FastAPI]
-    M --> G[Review graph]
-    G --> DB[(Postgres: checkpoints, events, memory, per person)]
-    G -->|numbers in, prose out| L["<b>LLM (Language Model)</b><br/>writes the report"]
-  end
-  subgraph CARDS[Card agents]
-    A["amex-agent  - for American Express Israel cardholders; Java, a separate GitHub repo, simulating another operator"]
-    B["cal-agent  - for Cal cardholders; Python, a separate GitHub repo, the same contract"]
-  end
-  G -->|A2A monthly-transactions<br/>your token + caller secret| A
-  G -->|same contract| B
-  classDef user fill:#f3f4f6,stroke:#4b5563,color:#111827
-  classDef hfa fill:#dbeafe,stroke:#1d4ed8,color:#111827
-  classDef amx fill:#dcfce7,stroke:#15803d,color:#111827
-  classDef llm fill:#ede9fe,stroke:#6d28d9,color:#111827
-  class U user
-  class P,M,G,DB hfa
-  class L llm
-  class A amx
-  class B amx
-  style HFA fill:#eff6ff,stroke:#1d4ed8
-  style CARDS fill:#f0fdf4,stroke:#15803d
+  U((You)) --> P[React page]
+  P -->|REST + SSE| E[nginx edge]
+  E --> M[FastAPI replicas]
+  M --> DB[(Postgres)]
+  M --> R[(Redis)]
+  M -->|totals in, prose out| L[LLM]
+  M -->|A2A monthly-transactions| A[amex-agent]
+  M -->|same contract| B[cal-agent]
 ```
 
-A review of one month runs in the Review graph box above: a small state machine that pauses when
-it has a question for you and resumes with your answer. Its state lives in Postgres, so a question
-waits as long as it takes, across restarts. The home finance agent is the A2A client of one card
-agent per card issuer, all offering the same contract, and each card agent is opaque to it beyond
-that contract. Details and the reasoning behind them:
-[docs/architecture.md](docs/architecture.md); the contract every card agent offers:
-[docs/a2a-contract.md](docs/a2a-contract.md); how sign-in spans the agents:
-[docs/sign-in.md](docs/sign-in.md).
-
-**Stack:** Python, FastAPI, LangGraph, Postgres, a2a-sdk, React, Docker.
-
-## How a review runs
-
-1. You sign in with Google, pick a billing month, the month the card is charged (this month by
-   default), and press start. The page shows every step live.
-2. The home finance agent reads each card agent's Agent Card, checks it offers the skill, and asks
-   for the month on your behalf, forwarding your sign-in. Charges stream in as the card agent
-   reads them.
-3. The review pauses on a question when it needs you: a card agent's request for a statement that is
-   not downloaded yet, or a merchant a card agent is unsure of. It waits as long as it takes, even
-   across a restart.
-4. Your answers resume the review. A merchant question lists its charges, and you answer only the
-   ones you recognize. A category you choose is remembered for that merchant, so next month asks
-   less. A missing statement links to the card agent's statements page: sign in there with the
-   same Google account, load the file and press "continue", and the card agent's paused task
-   resumes.
-5. Totals per category are compared to the budget. A language model turns the numbers into a few
-   sentences; the numbers themselves never come from it.
-6. On the finished review, choosing a category in the spending pie, or the standing orders, lists
-   just those charges, and changing a merchant's category redoes the totals and the summary.
-7. Mid-month, "Include expected charges" adds the standing orders and installments the latest
-   earlier reviewed month says are still to come, so the pie shows where the month is heading.
-
-## Boundaries
-
-- **Each card agent normalizes and categorizes its own card, so the home finance agent handles
-  nothing card-specific.** Statement formats, card-specific labels, installments and foreign
-  purchases never reach it. Rows arrive in one shared format, each placed in a category by the
-  card agent with its confidence, `high`, `medium` or `low`, or `uncategorized` when it cannot
-  tell. Adding a card means running its agent and connecting it with `add-card-agent.sh`, with no
-  code change here. This agent owns only what spans cards: your categories (which outrank any card
-  agent's), the budget, the totals and the summary.
-- **They meet at one A2A contract, the same for every card agent.** The skill
-  `monthly-transactions` takes a billing month and returns rows in that shared format (ISO dates,
-  amounts in shekels, one category from a closed list), or a request for the missing statement.
-  [docs/a2a-contract.md](docs/a2a-contract.md) is the contract; a card agent documents how it
-  implements it in its own repo.
+**[Architecture](docs/architecture.md)** continues from here: the full diagram, the boundaries
+between this agent and the card agents, and a page per subsystem.
 
 ## Getting started
 
-Requires **Docker**, **Python 3.12+** and **Node.js 22+**. Everything here is this repo's own; a
-card agent is deployed from its own repo and connected at the end.
+Needs Docker; the tests also need Python 3.12+ and Node.js 22. A review needs a running card
+agent, deployed from its own repo, though this agent starts and signs you in without one.
 
-1. **The env file and the budget.** `./scripts/init-env.sh` writes `backend/.env`; every key in it
-   is explained in [backend/.env.example](backend/.env.example). The next two steps fill in the two
-   it needs. It also writes `config/budget.yaml`, your monthly limit per category, from the
-   committed example; the file is yours and stays out of git.
-2. **A Google OAuth client** in a Google Cloud project of its own, with `http://localhost:8010` as
-   the authorized JavaScript origin. [docs/sign-in.md](docs/sign-in.md#setting-up-google) walks
-   through the console. Add every household member's Google account as a test user: Google signs in
-   nobody else while an app is in testing. The client id goes into `backend/.env` as
-   `GOOGLE_CLIENT_ID`. Google allows only `localhost` or a public hostname as an origin, so a phone
-   on the home network cannot sign in until the stack is reached through a hostname.
-3. **A language model key**, Anthropic or OpenAI, as `LLM_API_KEY`. `LLM_MODEL=provider:model`
-   names the model, OpenAI's `gpt-5-nano` unless changed.
-4. **Start:**
+1. Create a Google OAuth web client in a Google Cloud project of your own, with
+   `http://localhost:8010` as its authorized JavaScript origin, and add your household's Google
+   accounts as test users ([Sign-in](docs/sign-in.md#setting-up-google) walks the console).
+2. Run `./scripts/deploy.sh`. The first run creates the gitignored settings files under
+   `scripts/lib/` from their `.example.sh` files, which explain each setting, with a generated
+   database password, plus an empty card-agent registry (`backend/card-agents.yaml`) and
+   `config/budget.yaml`, then stops and names each setting left to fill in: `LLM_MODEL` as
+   `provider:model` (`anthropic` or `openai`) and the client id as `GOOGLE_CLIENT_ID` in
+   `params.sh`, and that provider's `LLM_API_KEY` in `secrets.sh`.
+3. Fill them in, put your monthly limit per category in `config/budget.yaml`, and run
+   `./scripts/deploy.sh` again. It builds the images, starts the stack, returns once the page
+   answers, and prints this agent's Google client id. Hand it to the operator of each card
+   agent: their registration script records this agent as a caller and issues it a secret.
+4. Open http://localhost:8010 and sign in; the page says no card agent is connected yet.
+5. Connect a card agent with the four values its operator sends back, its name, the URL this
+   agent calls, the URL your browser opens its pages at and the secret:
+   `./scripts/tools/add-card-agent.sh --name <name> --url <url> --browser-url <url> --secret
+   <secret>`, then run `./scripts/deploy.sh` again, since the registry is read at startup.
+6. To run the stack on AWS instead, as a guest on the EC2 instance of the
+   [loan-simulator](https://github.com/erancha/loan-simulator) stack behind a CloudFront
+   distribution of its own, deploy that stack first, then run `./scripts/deploy.sh --ec2`. It
+   also names the access key pair and region to fill in in `aws-config.sh`, and at the end
+   prints the CloudFront address to add to the Google client. The instance's card agents go into
+   their own registry with `tools/add-card-agent.sh --ec2`
+   ([Development & deployment](docs/development.md#connecting-a-card-agent)).
 
-   ```bash
-   ./scripts/start.sh      # database, Redis, migrations and the agent's replicas, in Docker
-   ```
-
-   Once the agent is up, the script ends by printing this agent's Google client id:
-
-   ```text
-   Hand this to each card agent's operator, who registers this agent as a caller with it:
-     Google client id: <the GOOGLE_CLIENT_ID from backend/.env>
-   ```
-
-   That id is public. Send it to the card agent's operator; step 6 records what they send back.
-5. Open **http://localhost:8010** and sign in with Google. The page says no card agent is connected
-   yet, which is right: this agent runs on its own.
-6. **Connect a card agent.** Both operators' sides, in order, are in
-   [docs/connecting-agents.md](docs/connecting-agents.md). The card agent's operator deploys it
-   from its own repo and registers this agent as a caller with the client id from step 4. The
-   registration prints four values, which they send you by whatever channel you two share, a
-   message or a password manager; nothing in either agent transmits them. Each goes into one flag
-   of the command below:
-
-   | Value | Flag |
-   |---|---|
-   | the card agent's name | `--name` |
-   | the URL this agent calls it at | `--url` |
-   | the URL your browser opens its pages at | `--browser-url` |
-   | the secret, shown once and confidential | `--secret` |
-
-   ```bash
-   ./scripts/add-card-agent.sh --name <name> --url <url> --browser-url <browser url> \
-     --secret <secret>
-   ./scripts/start.sh      # the agent reads the registry at startup
-   ```
-
-   The page then names the agent and offers a review.
+`./scripts/test.sh` runs the backend and frontend checks; none needs a model key.
+[Development & deployment](docs/development.md) has the addresses, the tests and the scripts.
 
 ## Scripts
 
-All live in `scripts/`; run with `--help` for full usage.
+- `init-env.sh` — creates the gitignored settings files under `scripts/lib/`, with a generated
+  database password, the empty card-agent registries and the budget; `deploy.sh` runs it first
+- `test.sh` — the backend and frontend checks; `e2e` runs a whole review through this agent and
+  amex-agent
+- `deploy.sh` — builds and starts Postgres, Redis, the backend replicas and the edge in Docker;
+  `--ec2` does it on the shared EC2 instance behind CloudFront
+- `docker-helper.sh` — stops the stack, follows its logs or shows its status
 
-| Script | Purpose |
-|---|---|
-| `init-env.sh` | Create `backend/.env`, an empty card-agent registry and `config/budget.yaml` from its example; `--force` overwrites the env file only. |
-| `add-card-agent.sh` | Connect a card agent, or replace its entry, in `backend/card-agents.yaml`. |
-| `start.sh` | Run database, Redis, migrations and the agent's replicas behind an nginx edge in Docker, or `--host` with the agent as a local process (the page is rebuilt when its sources changed); prints the Google client id a card agent registers this agent with. |
-| `docker-helper.sh` | Stop, follow logs, or show status of the Docker stack. |
-| `sql-helper.sh` | Row counts of every database table (`--counts`), or their first 20 rows (`--rows`, `--limit N` for more). |
-| `test.sh` | Backend and frontend checks; `e2e` runs whole reviews through both agents. |
+Each script's header comment is its full documentation, and `--help` prints it. Hands-on tools,
+such as connecting a card agent, are in [scripts/tools/](scripts/tools/README.md).
 
-## Testing
+## Details
 
-```bash
-./scripts/test.sh          # backend (lint, types, import boundaries, tests) + frontend
-./scripts/test.sh e2e      # both agents in Docker, one full review with its questions answered
-```
-The layers and what each proves: [docs/testing.md](docs/testing.md).
+- [Architecture](docs/architecture.md) — the parts, the boundaries and a page per subsystem
+- [A2A contract](docs/a2a-contract.md) — the `monthly-transactions` skill every card agent offers
+- [Sign-in](docs/sign-in.md) — how one Google sign-in spans the agents, and the Google setup
+- [Connecting agents](docs/connecting-agents.md) — both operators' sessions, in order
+- [Why A2A](docs/why-a2a.md) — what the protocol adds here, and what it does not
+- [Development & deployment](docs/development.md) — the settings, the tests, the scripts and
+  the EC2 deployment
+- [Testing](docs/testing.md) — what each test layer proves
+- [ADRs](docs/adr/) — the founding decisions, one record each, with their reasons
 
 ## License
 
-Released under the MIT License. See [LICENSE](LICENSE).
+Source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE). Reading the source,
+forking it and running a private deployment are free for anyone, companies included —
+[NOTICE](NOTICE) grants that explicitly for evaluating the project or its author. Building a
+commercial product or service on it needs a commercial license: erancha@gmail.com.
 
 ---
 More projects by the author: [github.com/erancha](https://github.com/erancha)

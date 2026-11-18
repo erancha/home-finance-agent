@@ -132,6 +132,7 @@ async def production_deps(settings: Settings) -> AsyncIterator[AppDeps]:
             locks=PostgresLocks(sessions),
             sessions=sessions,
             verifier=verifier,
+            https_only=settings.hfm_https_only,
             google_client_id=settings.google_client_id,
             card_agents=tuple(card_agents),
         )

@@ -50,6 +50,14 @@ def test_the_cookie_is_secure_over_https() -> None:
         assert set_cookie(response)[COOKIE]["secure"]
 
 
+def test_the_cookie_is_secure_behind_https_that_ends_before_the_agent() -> None:
+    deps = app_deps(scripted())
+    deps = deps.__class__(**{**deps.__dict__, "https_only": True})
+    with TestClient(create_app(deps=deps)) as client:
+        response = client.post("/api/auth/session", json={"credential": DANA_TOKEN})
+        assert set_cookie(response)[COOKIE]["secure"]
+
+
 def test_a_bad_credential_is_401_with_the_reason_and_sets_no_cookie() -> None:
     with TestClient(create_app(deps=app_deps(scripted()))) as client:
         response = client.post("/api/auth/session", json={"credential": "forged"})

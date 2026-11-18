@@ -3,7 +3,8 @@
 How one review runs underneath the React page in the browser: a LangGraph graph does the work, a
 runner around it owns the review's status, its limits and the person's answers, and an HTTP API lets
 the page drive both.
-The event stream the page renders from is in [events.md](events.md).
+This page details the [Architecture](../architecture.md#reviews) section of the same name; the
+event stream the page renders from is in [events.md](events.md).
 
 ## The graph
 

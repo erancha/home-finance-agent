@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Verifies add-card-agent.sh: writes an entry the manager's loader reads, replaces an entry by
-# name while keeping the others, starts from the empty registry init-env.sh writes, creates the
-# file owner-readable only, and refuses a blank option, a value that is not a plain scalar, and a
-# file it did not write.
+# Verifies tools/add-card-agent.sh: writes an entry the manager's loader reads, replaces an entry
+# by name while keeping the others, starts from the empty registry init-env.sh writes, creates the
+# file owner-readable only, writes the instance's registry with --ec2, and refuses a blank option,
+# a value that is not a plain scalar, and a file it did not write.
 set -euo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,8 +10,9 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 FILE="$WORK/card-agents.yaml"
 fail() { echo "FAIL: $*" >&2; exit 1; }
-add() { bash "$SCRIPTS_DIR/add-card-agent.sh" --file "$FILE" "$@"; }
-HEADER='# Card agents this home finance agent reviews with; written by scripts/add-card-agent.sh.'
+add() { bash "$SCRIPTS_DIR/tools/add-card-agent.sh" --file "$FILE" "$@"; }
+HEADER='# Card agents this home finance agent reviews with; written by'
+HEADER+=' scripts/tools/add-card-agent.sh.'
 
 printf 'agents: []\n' > "$FILE"
 add --name amex --url http://host.docker.internal:8020 --browser-url http://localhost:8020 \
@@ -52,16 +53,23 @@ printf 'agents: [\n' > "$FILE"
 if add --name amex --url http://x:1 --browser-url http://y:2 --secret s >/dev/null 2>"$WORK/err"
 then fail "rewrote a file it did not write"; fi
 
-# Without --file the script writes the registry start.sh mounts: CARD_AGENTS_FILE from backend/.env
-# when set, the default beside it otherwise.
-mkdir -p "$WORK/scripts" "$WORK/backend"
-cp "$SCRIPTS_DIR/common.sh" "$SCRIPTS_DIR/add-card-agent.sh" "$WORK/scripts/"
-bash "$WORK/scripts/add-card-agent.sh" --name amex --url http://x:1 --browser-url http://y:2 \
+# Without --file the script writes the registry deploy.sh hands this machine's manager, and with
+# --ec2 the instance's.
+mkdir -p "$WORK/scripts/lib" "$WORK/scripts/tools" "$WORK/backend"
+cp "$SCRIPTS_DIR/common.sh" "$WORK/scripts/"
+cp "$SCRIPTS_DIR/lib/settings-guard.sh" "$SCRIPTS_DIR/lib/ec2.sh" "$WORK/scripts/lib/"
+cp "$SCRIPTS_DIR/tools/add-card-agent.sh" "$SCRIPTS_DIR/tools/add_card_agent.py" \
+  "$WORK/scripts/tools/"
+bash "$WORK/scripts/tools/add-card-agent.sh" --name amex --url http://x:1 --browser-url http://y:2 \
   --secret s >/dev/null
-[ -f "$WORK/backend/card-agents.yaml" ] || fail "default registry not written beside backend/.env"
-printf 'CARD_AGENTS_FILE=%s\n' "$WORK/elsewhere.yaml" > "$WORK/backend/.env"
-bash "$WORK/scripts/add-card-agent.sh" --name amex --url http://x:1 --browser-url http://y:2 \
-  --secret s >/dev/null
-[ -f "$WORK/elsewhere.yaml" ] || fail "CARD_AGENTS_FILE from backend/.env not honoured"
+[ -f "$WORK/backend/card-agents.yaml" ] || fail "this machine's registry not written"
+[ ! -e "$WORK/backend/card-agents.ec2.yaml" ] \
+  || fail "the instance's registry was written without --ec2"
+bash "$WORK/scripts/tools/add-card-agent.sh" --ec2 --name amex --url http://x:1 \
+  --browser-url https://d1.cloudfront.net --secret s >/dev/null
+grep -q 'browser_url: https://d1.cloudfront.net$' "$WORK/backend/card-agents.ec2.yaml" \
+  || fail "--ec2 did not write the instance's registry"
+grep -q 'browser_url: http://y:2$' "$WORK/backend/card-agents.yaml" \
+  || fail "--ec2 changed this machine's registry"
 
 echo "test_add_card_agent: all checks passed"

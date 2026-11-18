@@ -3,7 +3,8 @@
 One Postgres database holds everything the home finance agent keeps: its own tables, and
 LangGraph's checkpoints of each review's graph. Reviews and both memories carry the person's
 Google account id, and events and checkpoints hang off a review, so each person's data is kept
-apart by that one id.
+apart by that one id. This page details the [Architecture](../architecture.md#storage) section
+of the same name.
 
 ## This agent's tables
 

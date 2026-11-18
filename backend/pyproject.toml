@@ -2,7 +2,7 @@
 name = "hfm"
 version = "0.1.0"
 description = "Home finance agent: a LangGraph review over A2A card agents"
-license = "MIT"
+license = "PolyForm-Noncommercial-1.0.0"
 authors = [{ name = "Eran C", email = "erancha@gmail.com" }]
 requires-python = ">=3.12"
 dependencies = [

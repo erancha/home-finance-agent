@@ -1,36 +1,79 @@
 # The home finance agent's replicas, its database, the Redis that joins the replicas' live events
-# and the nginx edge the browser reaches it through. The scripts export backend/.env,
-# CARD_AGENTS_FILE, the card-agent registry, and HOST_UID/HOST_GID, the user who owns it, before
-# calling compose; relative paths resolve from this repo's root.
+# and the nginx edge the browser reaches it through. The scripts call compose from this directory,
+# so relative paths resolve from the repo root. Settings come from the files under scripts/lib/
+# (stack-params.sh, params.sh, secrets.sh), which the scripts export into their shell before
+# calling compose, so the ${...} values below interpolate; a bare docker compose call has none of
+# them. Postgres binds to this machine's loopback interface only, since Docker otherwise
+# publishes on every host interface and exposes the port to the whole network; the edge is the
+# deliberate exception.
+#
+# Nothing is bind-mounted from this machine, so the same file runs against the EC2 instance's
+# Docker daemon (docker-compose.ec2.yml): the edge's configuration is baked into its own image,
+# and the card-agent registry reaches the manager as a secret.
+name: home-finance-agent
+
 x-manager-build: &manager-build
   context: .
   dockerfile: backend/Dockerfile
 
-x-manager-env-file: &manager-env-file
-  - path: ./backend/.env
-    required: true
+x-manager-image: &manager-image hfm-manager:local
 
-# Overrides backend/.env: the in-network database address, the registry's mount path and strict
-# checkpoint deserialization.
+# The in-network address, overriding the host form secrets.sh holds.
+x-database-env: &database-env
+  DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:?set in stack-params.sh}:\
+    ${POSTGRES_PASSWORD:?set in secrets.sh}@db:${DB_PORT:?set in stack-params.sh}/\
+    ${POSTGRES_DB:?set in stack-params.sh}"
+
+# Each container receives only the settings it reads, listed once per service below. A key
+# listed without a value takes its value from the scripts' shell and stays unset when its settings
+# file leaves it commented out, so the service keeps its default.
 x-manager-env: &manager-env
-  DATABASE_URL: postgresql+psycopg://hfm:hfm@db:5432/hfm
-  CARD_AGENTS_FILE: /card-agents.yaml
+  <<: *database-env
+  LLM_MODEL:
+  LLM_API_KEY:
+  GOOGLE_CLIENT_ID:
+  AUTH_ISSUER:
+  AUTH_JWKS_URL:
+  AUTH_PUBLIC_KEY_FILE:
+  HFM_E2E:
+  HFM_HTTPS_ONLY:
+  REPORT_MEMORY_RETENTION_DAYS:
+  HFM_LOG_LEVEL:
+  HFM_LOG_LEVELS:
+  # Where the card-agents secret below is placed.
+  CARD_AGENTS_FILE: /run/secrets/card-agents
+  # Live events cross the replicas through Redis. To run on the in-process bus instead, blank
+  # this value (a blank counts as unset) and set replicas to 1 below: a stream held by a replica
+  # other than the one running the review would go quiet after its replay. The redis service may
+  # stay; idle, it costs nothing.
+  REDIS_URL: redis://redis:6379/0
+  # Strict checkpoint deserialization: any value type outside the review's allow-list is refused.
   LANGGRAPH_STRICT_MSGPACK: "true"
+
+# The card agents the manager calls, with the secrets they issued to it. compose() of
+# scripts/common.sh exports the registry file's content as CARD_AGENTS_REGISTRY. Compose copies a
+# secret taken from a variable into the container when it creates it, so no file of this machine
+# is mounted; docker-compose.ec2.yml hands the instance's manager the instance's registry instead.
+secrets:
+  card-agents:
+    environment: CARD_AGENTS_REGISTRY
 
 services:
   db:
     image: postgres:16
     deploy: { resources: { limits: { memory: 256M } } }
     environment:
-      POSTGRES_USER: hfm
-      POSTGRES_PASSWORD: hfm
-      POSTGRES_DB: hfm
+      POSTGRES_USER: ${POSTGRES_USER:?set in stack-params.sh}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in secrets.sh}
+      POSTGRES_DB: ${POSTGRES_DB:?set in stack-params.sh}
+      # Moves the server, and pg_isready below, off the default port.
+      PGPORT: ${DB_PORT:?set in stack-params.sh}
     ports:
-      - "127.0.0.1:5434:5432"
+      - "127.0.0.1:${DB_HOST_PORT:?set in stack-params.sh}:${DB_PORT:?set in stack-params.sh}"
     volumes:
       - hfm_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U hfm -d hfm"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 3s
       timeout: 3s
       retries: 15
@@ -45,48 +88,39 @@ services:
       timeout: 3s
       retries: 15
 
+  # Brings the schema and the checkpoint tables to the image's version, then exits.
   migrate:
     build: *manager-build
-    image: hfm-manager:local
+    image: *manager-image
     command: alembic upgrade head
-    env_file: *manager-env-file
-    environment: *manager-env
+    environment: *database-env
     depends_on:
       db:
         condition: service_healthy
 
   manager:
     build: *manager-build
-    image: hfm-manager:local
+    image: *manager-image
     # The app ends its event streams on SIGTERM; the graceful timeout is a backstop.
     command: >-
       uvicorn hfm.platform.app:create_app --factory --host 0.0.0.0 --port 8010
       --timeout-graceful-shutdown 5
-    env_file: *manager-env-file
-    environment:
-      <<: *manager-env
-      # Live events cross the replicas through Redis. To run on the in-process bus instead, blank
-      # this value (a blank counts as unset) and set replicas to 1 below: a stream held by a
-      # replica other than the one running the review would go quiet after its replay. The redis
-      # service may stay; idle, it costs nothing. start.sh --host is that single process,
-      # ready-made, with no Redis at all.
-      REDIS_URL: redis://redis:6379/0
-    # The registry holds the card agents' secrets, so the scripts write it readable by its owner
-    # alone; the manager runs as that user to read the mount. The image's own user serves migrate.
-    user: "${HOST_UID:?run through ./scripts/start.sh}:${HOST_GID:?same}"
-    # A card agent on this machine is registered as http://host.docker.internal:<port>; this alias
-    # gives a plain Linux Docker Engine that name, which Docker Desktop provides on its own.
+    environment: *manager-env
+    # Readable by everyone in the container, which runs only the image's own user.
+    secrets:
+      - card-agents
+    # A card agent on the same machine, or on the same EC2 instance, is registered as
+    # http://host.docker.internal:<port>; this alias gives a plain Linux Docker Engine that name,
+    # which Docker Desktop provides on its own.
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    volumes:
-      - ${CARD_AGENTS_FILE:?run through ./scripts/start.sh}:/card-agents.yaml:ro
     # More than one replica shows a review served by whichever one takes each request; the edge
     # spreads requests over all and picks up replicas added or recreated while the stack runs.
     # A redeploy fails only the reviews running on the replicas it stops; a review another replica
     # runs goes on, and a waiting review needs no replica. To try another count without editing
-    # this file, scale the running stack from a shell that sourced scripts/common.sh and ran
-    # load_env (the compose interpolation needs its exports):
-    # `compose up -d --scale manager=N --wait`. The next start.sh returns to this count.
+    # this file, scale the running stack from a shell that sourced scripts/common.sh (compose
+    # loads the settings it interpolates): `compose up -d --scale manager=N --wait`. The next
+    # deploy.sh returns to this count.
     deploy: { replicas: 2, resources: { limits: { memory: 512M } } }
     healthcheck:
       test: ["CMD", "python", "-c",
@@ -102,14 +136,18 @@ services:
       migrate:
         condition: service_completed_successfully
 
-  # The only service that publishes the agent's port; nginx/default.conf proxies to the manager.
+  # The only service that publishes the agent's port; nginx/default.conf, baked into the image,
+  # proxies to the manager.
   edge:
-    image: nginx:1.28-alpine
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    build:
+      context: nginx
+      dockerfile_inline: |
+        FROM nginx:1.28-alpine
+        COPY default.conf /etc/nginx/conf.d/default.conf
+    image: hfm-edge:local
     deploy: { resources: { limits: { memory: 64M } } }
     ports:
-      - "8010:8010"
+      - "${EDGE_HOST_PORT:?set in stack-params.sh}:8010"
     healthcheck:
       test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:8010/health"]
       interval: 3s

@@ -50,8 +50,8 @@ continue is the one part of the demo that genuinely needs A2A.
 Three things visible in the code, not hypothetical:
 
 - **Discovery and plug-in.** Each card agent publishes a card saying which skill it offers, where
-  to call it and which credentials it expects. A new card agent is one `add-card-agent.sh` run and
-  no code change.
+  to call it and which credentials it expects. A new card agent is one
+  `tools/add-card-agent.sh` run and no code change.
 - **Two implementations that must agree.** The card agent is built on a2a-java and this client on
   the Python a2a-sdk. That boundary surfaced real protocol facts: the blocking `SendMessage` call
   races inside a2a-java, so this client only streams, and a task's state is the thing to trust,

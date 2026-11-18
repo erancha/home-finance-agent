@@ -8,7 +8,8 @@
 # tokens with its public key under the issuer hfm-e2e, and run_review.py signs its own tokens for
 # the two client ids below. make_auth.py also writes, into that folder, the callers file that
 # registers the manager with a throwaway secret and the registry that connects the manager to
-# amex-agent at its service address; test.sh mounts the registry through CARD_AGENTS_FILE.
+# amex-agent at its service address; test.sh points REGISTRY_FILE of scripts/common.sh at it, so
+# the manager's card-agents secret holds it.
 services:
   manager:
     # run_review.py answers a question the instant it arrives, which can reach the replica that

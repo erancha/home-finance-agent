@@ -5,16 +5,17 @@ and there is no other way in. Every piece of data belongs to the person who sign
 trust each other through one explicit step: the home finance agent is registered with each card
 agent as a caller. "The card agent" below is any card agent the home finance agent calls; the demo
 has amex-agent and cal-agent. This page explains how that works and how to set up the Google side;
-the message details are in [a2a-contract.md](a2a-contract.md).
+the message details are in [a2a-contract.md](a2a-contract.md). It details the
+[Architecture](architecture.md#sign-in) section of the same name.
 
-**Contents:** [The design in six points](#the-design-in-six-points) ·
+**Contents:** [The design point by point](#the-design-point-by-point) ·
 [Setting up Google](#setting-up-google) ·
 [What a real card issuer would do differently](#what-a-real-card-issuer-would-do-differently) ·
 [Where it lives in the code](#where-it-lives-in-the-code)
 
 In the diagram, colors mark who owns a component and who sends an arrow: blue for the home finance
 agent, green for the card agent, amber for Google, violet for the language model, grey for the
-person at the browser. The superscripts ¹ to ⁶ mark the six points below the diagram; ⁷ marks [what
+person at the browser. The superscripts ¹ to ⁶ mark the points below the diagram; ⁷ marks [what
 a real card issuer would do differently](#what-a-real-card-issuer-would-do-differently).
 
 ```mermaid
@@ -97,7 +98,7 @@ flowchart TB
   linkStyle 17,18,19,20,21 stroke:#b45309
 ```
 
-## The design in six points
+## The design point by point
 
 **¹ Google is the only identity.** Each agent has its own OAuth client in its own Google Cloud
 project, so the two share nothing by default; two projects under one Google account stand in for two
@@ -120,7 +121,7 @@ caller: a name, the secret the card agent issued to it, and the Google client id
 sign-in. The secret on a request selects the entry; the forwarded token's audience must equal that
 entry's client id. Registration is the card agent's operator running its registration script, which
 issues the secret; removing the entry revokes the caller. Only the secret is confidential; the
-client id is public. The hand-over to this side, and `add-card-agent.sh` recording it, is in
+client id is public. The hand-over to this side, and `tools/add-card-agent.sh` recording it, is in
 [connecting-agents.md](connecting-agents.md). The agent card advertises both schemes.
 
 **⁵ A missing, bad or expired token** is answered with the A2A auth-required task state. The home
@@ -158,21 +159,25 @@ and setting.
    Google accounts. While an app is in testing, Google signs in nobody else, with an "access
    blocked" page. **Data Access** stays empty: the agent needs no scope beyond the defaults.
 4. **Create the client.** Open **Clients → Create client**, choose **Web application**, give it a
-   name, and under **Authorized JavaScript origins** add `http://localhost:8010`. Leave
-   **Authorized redirect URIs**
-   empty: the sign-in button hands the token to the page directly. **Create** shows the client id,
-   a long string ending in `.apps.googleusercontent.com`, next to a client secret and a JSON
-   download. Only the client id is needed; it stays listed on the Clients page. Ignore the secret
-   and the download, close the dialog, and the "shown once" warning costs nothing: the agent
-   verifies tokens, it never redeems codes, so nothing in this repo has a place for the secret.
-5. **Give it to the agent.** Copy the client id into `GOOGLE_CLIENT_ID` in `backend/.env`, the
-   file `init-env.sh` wrote.
+   name, and under **Authorized JavaScript origins** add `http://localhost:8010`, and for the EC2
+   deployment its CloudFront address, `https://<distribution>.cloudfront.net`, which
+   `deploy.sh --ec2` prints at the end of its first run (add it then). Leave **Authorized
+   redirect URIs** empty: the sign-in button hands the token to the page directly. **Create**
+   shows the client id, a long string ending in `.apps.googleusercontent.com`, next to a client
+   secret and a JSON download. Only the client id is needed; it stays listed on the Clients
+   page. Ignore the secret and the download, close the dialog, and the "shown once" warning costs
+   nothing: the agent verifies tokens, it never redeems codes, so nothing in this repo has a place
+   for the secret.
+5. **Give it to the agent.** Copy the client id into `GOOGLE_CLIENT_ID` in
+   `scripts/lib/params.sh`, the file `init-env.sh` wrote.
+6. **Start the agent.** Run `./scripts/deploy.sh`, which starts it with the client id, on this
+   machine or, with `--ec2`, on the EC2 instance.
 
-Then `start.sh`; connecting a card agent is in [connecting-agents.md](connecting-agents.md).
+Connecting a card agent is in [connecting-agents.md](connecting-agents.md).
 
 Google accepts only `localhost` or a public hostname as an authorized origin, never a private
 address such as `10.0.0.23`, so a phone on the same network cannot sign in until the stack is
-reached through a hostname.
+reached through a hostname, such as the EC2 deployment's CloudFront address.
 
 ## What a real card issuer would do differently
 
@@ -191,7 +196,8 @@ guarantee that matters at this scale. Everything else in this document would sta
   tests swap Google's keys for their own through a setting.
 - **The session** is the verified Google ID token in an HttpOnly, SameSite=Strict cookie, checked
   again on every request. A cookie rather than a header, because the browser's event-stream object
-  cannot send headers. Nothing is stored server side.
+  cannot send headers. Nothing is stored server side. The cookie is Secure over HTTPS, and on the
+  EC2 instance always (`HFM_HTTPS_ONLY`), since HTTPS ends at CloudFront there.
 - **The person's token reaches the card-agent call** through a context variable the runner sets
   around each graph run, never through the graph state, so no checkpoint holds it. A test searches
   every stored checkpoint for it.

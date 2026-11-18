@@ -173,6 +173,7 @@ def app_deps(
         locks=InMemoryLocks(),
         sessions=UnreachableDatabase() if sessions is None else sessions,
         verifier=FakeTokenVerifier(TOKENS),
+        https_only=False,
         google_client_id="hfm-test-client",
         card_agents=card_agents,
     )

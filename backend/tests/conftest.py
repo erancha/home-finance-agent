@@ -20,7 +20,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 @pytest.fixture(autouse=True)
 def no_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Settings read only the test's environment, never a developer's backend/.env."""
+    """Settings read only the test's environment, never a developer's settings files."""
     monkeypatch.setitem(Settings.model_config, "env_file", None)
 
 

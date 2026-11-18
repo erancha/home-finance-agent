@@ -67,7 +67,7 @@ def test_lockfile_compiled_on_the_image_python():
     assert lock_python, "requirements.txt lacks the pip-compile header naming its Python"
     assert lock_python.group(1) == image_python.group(1), (
         f"requirements.txt was compiled on Python {lock_python.group(1)} but the image runs "
-        f"{image_python.group(1)}; regenerate it with scripts/lock.sh"
+        f"{image_python.group(1)}; regenerate it with scripts/tools/lock.sh"
     )
 
 

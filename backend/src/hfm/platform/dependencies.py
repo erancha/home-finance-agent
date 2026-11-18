@@ -30,6 +30,8 @@ class AppDeps:
     """Opens database sessions; the readiness probe runs its query through it."""
     verifier: TokenVerifier
     """Checks the ID token behind every request."""
+    https_only: bool
+    """Marks the sign-in cookie Secure whatever scheme the request arrived with."""
     google_client_id: str
     """The OAuth client the page signs people in with; published to the page, public."""
     card_agents: tuple[str, ...]

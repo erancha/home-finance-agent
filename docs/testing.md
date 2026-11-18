@@ -1,13 +1,15 @@
 # Testing
 
 What each layer of tests proves, and how to run it. The gate is the backend and the frontend; the
-end-to-end test is the one place this repo and a card agent's repo meet.
+end-to-end test is the one place this repo and a card agent's repo meet. This page details the
+tests behind [Development & deployment](development.md#backend-tests).
+
+**Contents:** [Backend](#backend) · [Frontend](#frontend) · [End to end](#end-to-end) · [CI](#ci)
 
 ```bash
 ./scripts/test.sh                  # backend + frontend
-./scripts/test.sh backend          # lint, types, import boundaries, pytest
-./scripts/test.sh frontend         # typecheck, lint, component tests, production build
-./scripts/test.sh frontend=unit    # typecheck and component tests only
+./scripts/test.sh backend          # the scripts' checks, lint, types, import boundaries, pytest
+./scripts/test.sh frontend         # lint, component tests, typecheck, production build
 ./scripts/test.sh e2e              # a full review through both agents in Docker
 ```
 
@@ -19,9 +21,10 @@ them through the same code path the running agent uses.
 
 **Static gates** fail the run before any test: ruff, mypy, and the import-linter contracts that
 keep the layers pointing inwards ([codebase-structure.md](architecture/codebase-structure.md)).
-Shell tests check the scripts an operator runs: the env file never overrides an exported variable,
-the registry is written owner-readable and replaced by name, and a launch without the registry is
-refused.
+The scripts' syntax is checked with `bash -n`, and shell tests check the scripts an operator runs:
+the settings files and registries are created owner-readable with a generated database password,
+a blank setting is named with its file, the registry is replaced by name in the file of the
+target, and a launch without a registry is refused.
 
 **Domain and application** run on plain values and in-memory fakes of every port. They prove the
 arithmetic and the rules: totals in exact decimals with overruns marked, a remembered category
@@ -58,8 +61,10 @@ tables belong to the migration run, so replicas starting together never race to 
 
 **Repository rules** pin the shape of the deployment: dependencies locked on the image's Python,
 the README's contents links reaching headings, Postgres published on localhost only, only the edge
-published on every interface, the edge picking up new replicas without a restart, and the env
-example documenting every setting.
+published on every interface, no file of the deployer's machine mounted, every image built here
+tagged for the EC2 instance's ARM processor, each container given only the keys it reads, the
+edge picking up new replicas without a restart, the EC2 template's rule descriptions accepted by
+EC2, and the settings files documenting every setting, with none of the secrets committed.
 
 ## Frontend
 
@@ -68,8 +73,8 @@ Google's sign-in script. They prove the React page renders a review from its eve
 only once the review is waiting, totals and the pie from the latest totals event, the report,
 failures and malformed frames shown. They also cover sign-in and sign-out, the month picker's
 rationing, the question card's answers, recategorizing from the raw transactions, and the
-expected-charges toggle. `scripts/test.sh frontend` adds the type check, the linter and the
-production build.
+expected-charges toggle. `scripts/test.sh frontend` runs them with the linter, the type check and
+the production build.
 
 ## End to end
 

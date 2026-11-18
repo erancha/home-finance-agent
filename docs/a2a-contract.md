@@ -1,9 +1,10 @@
 # A2A contract: the `monthly-transactions` skill
 
-This page is the contract every card agent offers the home finance agent, and the source of truth
-for it: a card agent that meets it is connected with `add-card-agent.sh` and no code change here.
-The home finance agent's A2A client enforces each point below, so a change on either side is
-checked against this list. Each of the demo's card agents documents how it implements the contract
+This page is the contract every card agent offers the home finance agent, behind the
+[Architecture](architecture.md#boundaries) boundaries, and the source of truth for it: a card
+agent that meets it is connected with `tools/add-card-agent.sh` and no code change here. The home
+finance agent's A2A client enforces each point below, so a change on either side is checked
+against this list. Each of the demo's card agents documents how it implements the contract
 in its own repo:
 [amex-agent/docs/a2a-contract.md](https://github.com/erancha/amex-agent/blob/main/docs/a2a-contract.md)
 and [cal-agent/docs/a2a-contract.md](https://github.com/erancha/cal-agent/blob/main/docs/a2a-contract.md).
@@ -178,7 +179,7 @@ only the action, the page below, continue and skip, so the text does not say wha
 - `month`: the billing month, `YYYY-MM`, that no statement covers.
 - `page`: optional. The path, on the agent's own origin, of a page where a person loads the
   missing statement; an agent with no such page omits it. The question links to that path on the
-  agent's browser address (`browser_url` in `backend/card-agents.yaml`) and offers only
+  agent's browser address (`browser_url` in the card-agent registry) and offers only
   "continue". A `page` that is not a path on the agent's own origin (a string starting with a
   single `/`) is refused.
 - `user`: the person the task belongs to, the agent's own bookkeeping; not read here.

@@ -2,7 +2,8 @@
 
 Every step of a review is an event, and the React page in the browser renders the review from
 those events alone. Because the events are stored, a reload, a link opened later or a second device
-replays them and shows the review exactly where it stands.
+replays them and shows the review exactly where it stands. This page details the
+[Architecture](../architecture.md#events-and-the-live-stream) section of the same name.
 
 ## The log comes first
 
@@ -34,7 +35,8 @@ the stream ends when the browser leaves or the server shuts down.
 Live delivery crosses replicas through Redis publish and subscribe, so the replica that runs a
 review and the replica that serves the browser need not be the same. Redis keeps nothing; the log
 does, and a browser that reconnects replays from it everything it has not seen. Without Redis, as in
-`start.sh --host`, one process runs every review and serves every stream.
+an agent started on the host ([Development](../development.md#running-the-agent-on-the-host)),
+one process runs every review and serves every stream.
 
 ## The page
 

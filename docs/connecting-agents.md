@@ -2,18 +2,28 @@
 
 The two agents are deployed separately, each from its own repo by its own operator, and connected
 afterwards by four values handed over out of band. This page walks through both sessions in
-order. Each repo's README covers its own session; the Google side of this agent is in
+order, behind the last step of the [README](../README.md#getting-started)'s Getting started.
+Each repo's README covers its own session; the Google side of this agent is in
 [sign-in.md](sign-in.md).
+
+**Contents:** [Session A: the home finance agent, nothing else
+deployed](#session-a-the-home-finance-agent-nothing-else-deployed) ·
+[Session B: the card agent, from its own repo](#session-b-the-card-agent-from-its-own-repo) ·
+[Session A again: connect and restart](#session-a-again-connect-and-restart) ·
+[Changing or revoking](#changing-or-revoking) ·
+[Why four values and a URL rule](#why-four-values-and-a-url-rule)
 
 ## Session A: the home finance agent, nothing else deployed
 
-1. `./scripts/init-env.sh` writes `backend/.env` and an empty card-agent registry.
+1. `./scripts/deploy.sh` writes the settings files under `scripts/lib/` and an empty card-agent
+   registry, then names the settings left to fill in.
 2. Create its Google Cloud project and OAuth client, with `http://localhost:8010` as the authorized
    JavaScript origin ([sign-in.md](sign-in.md#setting-up-google)), and put the client id in
-   `backend/.env` as `GOOGLE_CLIENT_ID`, with the model key as `LLM_API_KEY`.
-3. `./scripts/start.sh`. Open http://localhost:8010 and sign in. The page says "No card agents are
-   connected yet." and offers no review. Nothing in this session has named a card agent.
-4. `start.sh` ends by printing the Google client id. It is public; hand it to the card agent's
+   `params.sh` as `GOOGLE_CLIENT_ID`, with the model key as `LLM_API_KEY` in `secrets.sh`.
+3. `./scripts/deploy.sh` again. Open http://localhost:8010 and sign in. The page says "No card
+   agents are connected yet." and offers no review. Nothing in this session has named a card
+   agent.
+4. `deploy.sh` ends by printing the Google client id. It is public; hand it to the card agent's
    operator, who registers this agent as a caller with it.
 
 ## Session B: the card agent, from its own repo
@@ -31,17 +41,19 @@ relies on two things every card agent does:
 The URL it prints is the one its card advertises, and this agent calls that URL rather than the
 one it fetched the card from, so the card agent's operator sets it to an address reachable from
 where this agent runs: `http://host.docker.internal:<port>` for a card agent on the same machine
-when this agent runs in Docker, `http://localhost:<port>` when it runs with `start.sh --host`, the
-card agent's hostname when it runs elsewhere.
+or EC2 instance when this agent runs in Docker, `http://localhost:<port>` for this agent started on
+the host, the card agent's hostname when it runs elsewhere.
 
 ## Session A again: connect and restart
 
-5. `./scripts/add-card-agent.sh --name <name> --url <url> --browser-url <browser url> --secret
-   <secret>`, with the values from B. This writes `backend/card-agents.yaml`; `backend/.env` is
-   untouched.
-6. `./scripts/start.sh` again. Compose recreates the agent's replicas with the registry; the
-   database and its reviews stay. The page reads "Registered card agents: <name>" and offers a
-   review.
+5. `./scripts/tools/add-card-agent.sh --name <name> --url <url> --browser-url <browser url>
+   --secret <secret>`, with the values from B. This writes `backend/card-agents.yaml`; the
+   settings files are untouched. For the EC2 deployment, `--ec2` as the first argument writes
+   the instance's registry, `backend/card-agents.ec2.yaml`, whose browser URL is the card
+   agent's CloudFront address.
+6. `./scripts/deploy.sh` again (with `--ec2` for the instance). Compose recreates the agent's
+   replicas with the registry; the database and its reviews stay. The page reads "Registered card
+   agents: <name>" and offers a review.
 7. Start a review. Before any statement is loaded it pauses with a link to the card agent's
    statements page: sign in there with the same Google account, load the month's statement, come
    back and press "continue". What the page says when something is off:
@@ -59,7 +71,7 @@ card agent's hostname when it runs elsewhere.
 
 Edit the registry on whichever side changed, with its script, and restart that agent only: the
 card agent's registration script replaces a caller's entry (a new secret means a new hand-over);
-`add-card-agent.sh` replaces a card agent's entry. Removing an entry is editing the file.
+`tools/add-card-agent.sh` replaces a card agent's entry. Removing an entry is editing the file.
 
 ## Why four values and a URL rule
 

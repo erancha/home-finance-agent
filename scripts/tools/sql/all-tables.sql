@@ -1,5 +1,5 @@
 -- Row count of every table in the public schema, or with -v rows=1 the first :limit rows of every
--- table instead (-v limit=N). sql-helper.sh --counts and --rows run this file.
+-- table instead (-v limit=N). tools/sql-helper.sh --counts and --rows run this file.
 --
 -- pg_tables is read at run time, so the report follows the live schema as migrations add tables.
 -- In row dumps every value is cut to 80 characters, since LangGraph's checkpoint JSON runs long,

@@ -1,7 +1,8 @@
 # Scaling
 
 The Docker stack runs the backend as several replicas behind an nginx edge, all on one Postgres and
-one Redis. Two concerns follow, each a GitHub label beside `scalability`.
+one Redis. Each concern below is a GitHub label beside `scalability`. This page details the
+[Architecture](../architecture.md#scaling) section of the same name.
 
 ## Scaling safety
 
@@ -37,4 +38,4 @@ An nginx service, the edge, is the only one that publishes port 8010, and it spr
 the replicas. It looks up the replicas' addresses again every 5 seconds, so a
 replica added by scaling or recreated by a redeploy starts receiving requests without an edge
 restart. Its access log names the replica that served each request (`docker-helper.sh --logs
-edge`). `start.sh --host` has no edge: uvicorn serves the port itself.
+edge`). An agent started on the host has no edge: uvicorn serves the port itself.

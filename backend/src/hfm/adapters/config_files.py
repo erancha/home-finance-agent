@@ -11,7 +11,7 @@ from hfm.domain.models import AgentConfig, Budget
 from hfm.domain.taxonomy import require_category
 
 REGISTRY_FILE_NAME = "card-agents.yaml"
-"""The registry's file name beside backend/.env; scripts/add-card-agent.sh writes it."""
+"""The registry's file name in backend/; scripts/tools/add-card-agent.sh writes it."""
 
 _FIELDS = ("name", "url", "browser_url", "shared_secret")
 

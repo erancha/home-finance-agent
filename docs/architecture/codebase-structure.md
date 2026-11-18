@@ -1,13 +1,14 @@
 # Codebase structure
 
-One package, `hfm`, under `backend/src`, in five layers:
+This page details the [Architecture](../architecture.md#codebase-structure) section of the same
+name. One package, `hfm`, under `backend/src`, in layers:
 
 | Layer | Holds | Modules |
 |---|---|---|
 | `domain` | Plain immutable values and the rules on them: transactions, budget, totals, questions, events, the category list, merchant keys, the signed-in person, errors. | `models`, `taxonomy`, `merchants`, `questions`, `events`, `errors` |
-| `ports` | The interfaces the review needs from the outside world, as Python protocols. | `card_agent`, `repositories`, `events`, `report`, `auth` |
-| `application` | The review itself: the graph, totals arithmetic, questions and answer checks, the report prompt, the event sink, the run-scoped user token. | `review_graph`, `reconcile`, `questions`, `report`, `event_sink`, `user_token` |
-| `adapters` | Port implementations: the A2A client, Postgres repositories, the report writers, the Google token verifier, YAML config loading, the in-process and the Redis event bus. | `a2a_client`, `postgres/`, `report_writer`, `google_tokens`, `config_files`, `memory_bus`, `redis_bus` |
+| `ports` | The interfaces the review needs from the outside world, as Python protocols, including the named locks every replica shares. | `card_agent`, `repositories`, `events`, `report`, `auth`, `locks` |
+| `application` | The review itself: the graph, totals arithmetic, the charges a month in progress still expects, questions and answer checks, the report prompt, the event sink, the run-scoped user token. | `review_graph`, `reconcile`, `expected`, `questions`, `report`, `event_sink`, `user_token` |
+| `adapters` | Port implementations: the A2A client, Postgres repositories and locks, the report writers, the Google token verifier, YAML config loading, the in-process and the Redis event bus. | `a2a_client`, `postgres/`, `report_writer`, `google_tokens`, `config_files`, `memory_bus`, `redis_bus` |
 | `platform` | The running process: settings, logging, database engine, checkpointer, the review runner and the HTTP API. | `config`, `logging`, `db`, `checkpointer`, `review_runner`, `app`, `dependencies`, `api/` |
 
 Imports point inwards only. `platform` may use everything; `application` uses `ports` and
