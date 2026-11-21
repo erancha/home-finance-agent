@@ -12,6 +12,12 @@
 #       A trailing service list (db redis migrate manager edge) narrows to those services.
 #   ./scripts/docker-helper.sh --ps
 #       Show the containers' status.
+#   ./scripts/docker-helper.sh --costs [--since <age>]
+#       The model calls of the stack's logs by UTC day and by kind of call: calls, tokens in and
+#       out, dollars at the prices in model_costs.py, which a provider price change does not reach
+#       until the table is updated and deployed. <age> is 30m, 6h or 2d (default 1h). The logs
+#       are those of the containers now running: a container a deploy recreated starts its log
+#       anew.
 #   ./scripts/docker-helper.sh --ec2 --delete-stack
 #       Delete this repo's EC2 stack of the git branch: its port on the instance and its
 #       CloudFront distribution, after asking to type the stack's name. Its containers and the
@@ -41,6 +47,21 @@ do_logs() {
   esac
 }
 
+# Docker reads --since as a duration in hours, minutes or seconds; a count of days becomes hours,
+# so --costs --since 2d reads as it does in the AWS repos.
+do_costs() {
+  local since=1h
+  case "$#:${1:-}" in
+    0:) ;;
+    2:--since) since="$2" ;;
+    *) echo "--costs takes only --since <age>: $*" >&2; exit 2 ;;
+  esac
+  if [[ "$since" =~ ^([0-9]+)d$ ]]; then since="$((BASH_REMATCH[1] * 24))h"; fi
+  compose logs --no-color --no-log-prefix --timestamps --since "$since" |
+    python3 "$SCRIPT_DIR/lib/docker_helper.py"
+  echo "The dollars use the prices in PRICE_PER_MILLION of model_costs.py, as last deployed." >&2
+}
+
 TARGET=local
 if [ "${1:-}" = --ec2 ]; then TARGET=ec2; shift; fi
 mode="${1:-}"
@@ -62,6 +83,8 @@ case "$mode" in
   --stop) do_stop "$@" ;;
   --logs) do_logs "$@" ;;
   --ps)   compose ps "$@" ;;
-  *) echo "Unknown command: $mode (expected --stop | --logs | --ps | --delete-stack; see -h)" >&2
+  --costs) do_costs "$@" ;;
+  *) echo "Unknown command: $mode (expected --stop | --logs | --ps | --costs | --delete-stack;" \
+       "see -h)" >&2
      exit 1 ;;
 esac

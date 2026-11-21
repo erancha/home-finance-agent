@@ -2,6 +2,7 @@ import logging
 
 import pytest
 
+from hfm.adapters.model_costs import MODEL_CALL_LOGGER
 from hfm.platform.logging import ACCESS_LOGGER as ACCESS
 from hfm.platform.logging import configure_logging
 
@@ -29,6 +30,12 @@ def test_levels_come_from_hfm_prefixed_variables() -> None:
     })
     assert logging.getLogger().level == logging.INFO
     assert logging.getLogger("hfm.application.review_graph").level == logging.DEBUG
+
+
+def test_model_call_lines_pass_a_warning_level_log() -> None:
+    configure_logging({})
+    assert logging.getLogger(MODEL_CALL_LOGGER).isEnabledFor(logging.INFO)
+    assert not logging.getLogger("hfm").isEnabledFor(logging.INFO)
 
 
 def test_root_level_defaults_to_warning() -> None:

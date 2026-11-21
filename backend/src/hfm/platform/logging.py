@@ -2,7 +2,9 @@
 
 Core building blocks:
 - configure_logging: root level from HFM_LOG_LEVEL (default WARNING), per-logger overrides from
-  HFM_LOG_LEVELS ("name=LEVEL,name=LEVEL"), uvicorn's loggers routed to the shared handler
+  HFM_LOG_LEVELS ("name=LEVEL,name=LEVEL"), uvicorn's loggers routed to the shared handler, and
+  the model_call logger at INFO unless an override names it, so each model call's line reaches the
+  log
 - ProbeAccessDemotion: drops successful /health and /ready access lines to DEBUG so frequent
   orchestrator probes do not flood the log
 """
@@ -14,6 +16,8 @@ import sys
 from collections.abc import Mapping
 
 import structlog
+
+from hfm.adapters.model_costs import MODEL_CALL_LOGGER
 
 ENV_PREFIX = "HFM_"
 DEFAULT_LEVEL = "WARNING"
@@ -83,6 +87,7 @@ def configure_logging(env: Mapping[str, str] = os.environ) -> None:
         logger.handlers.clear()
         logger.propagate = True
         logger.setLevel(logging.NOTSET)
+    logging.getLogger(MODEL_CALL_LOGGER).setLevel(logging.INFO)
     for name, level in overrides.items():
         logging.getLogger(name).setLevel(level)
     access = logging.getLogger(ACCESS_LOGGER)

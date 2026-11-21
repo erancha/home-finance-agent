@@ -118,9 +118,11 @@ Docker runs the stack; `deploy.sh` and `docker-helper.sh` stop when it is not re
   CloudFront address to open and to register with Google ([Sign-in](sign-in.md#setting-up-google)).
   [The EC2 stack](#the-ec2-stack) covers what it deploys.
 - [`docker-helper.sh`](../scripts/docker-helper.sh) — `--stop [--volumes]`,
-  `--logs [-e] [service...]` or `--ps` for the stack; `--volumes` also removes the database.
-  With `--ec2` as its first argument it acts on the instance, and `--ec2 --delete-stack`
-  deletes this repo's EC2 stack.
+  `--logs [-e] [service...]`, `--ps` or `--costs [--since <age>]` for the stack; `--volumes`
+  also removes the database. `--costs` sums the model calls of the running containers' logs by
+  UTC day and by kind of call (a review's report), in dollars at the prices of
+  `backend/src/hfm/adapters/model_costs.py`. With `--ec2` as its first argument it acts on the
+  instance, and `--ec2 --delete-stack` deletes this repo's EC2 stack.
 - [`test.sh`](../scripts/test.sh) — the quality gate and the e2e, above.
 - [`init-env.sh`](../scripts/init-env.sh) — creates the settings files, the registries and the
   budget, above; `--force` replaces the settings files, hand-filled keys included.

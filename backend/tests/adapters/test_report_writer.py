@@ -3,6 +3,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import FakeListChatModel
 from langchain_openai import ChatOpenAI
 
+from hfm.adapters.model_call_log import ModelCallLog
 from hfm.adapters.report_writer import (
     CANNED_REPORT,
     CannedReportWriter,
@@ -31,7 +32,7 @@ def test_unknown_provider_raises_naming_it() -> None:
 
 def test_the_api_key_reaches_the_provider_client(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    writer = build_report_writer("anthropic:claude-sonnet-4-5", api_key="explicit-key")
+    writer = build_report_writer("anthropic:claude-haiku-5-5", api_key="explicit-key")
     assert isinstance(writer, LangChainReportWriter)
     model = writer._model
     assert isinstance(model, ChatAnthropic)
@@ -47,8 +48,16 @@ def test_gpt5_models_are_asked_for_minimal_reasoning() -> None:
 
 
 def test_other_openai_models_get_no_reasoning_option() -> None:
-    writer = build_report_writer("openai:gpt-4.1-nano", api_key="k")
+    writer = build_report_writer("openai:gpt-6.2-astra", api_key="k")
     assert isinstance(writer, LangChainReportWriter)
     model = writer._model
     assert isinstance(model, ChatOpenAI)
     assert model.reasoning_effort is None
+
+
+def test_every_call_is_logged_as_a_report() -> None:
+    writer = build_report_writer("openai:gpt-5-nano", api_key="k")
+    assert isinstance(writer, LangChainReportWriter)
+    [log] = writer._model.callbacks
+    assert isinstance(log, ModelCallLog)
+    assert (log.spec, log.kind) == ("openai:gpt-5-nano", "report")

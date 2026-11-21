@@ -4,6 +4,7 @@ from collections.abc import Iterator
 import pytest
 import structlog
 
+from hfm.adapters.model_costs import MODEL_CALL_LOGGER
 from hfm.platform.logging import UVICORN_LOGGERS
 
 
@@ -12,7 +13,7 @@ def restore_logging() -> Iterator[None]:
     """Undo configure_logging's process-wide changes so later tests see pytest's setup."""
     root = logging.getLogger()
     saved_handlers, saved_level = root.handlers[:], root.level
-    touched = ["hfm.application.review_graph", *UVICORN_LOGGERS]
+    touched = ["hfm.application.review_graph", MODEL_CALL_LOGGER, *UVICORN_LOGGERS]
     saved = {name: logging.getLogger(name) for name in touched}
     saved_state = {
         name: (lg.level, lg.handlers[:], lg.propagate, lg.filters[:]) for name, lg in saved.items()
