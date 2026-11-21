@@ -1,36 +1,34 @@
 # Scaling
 
-The Docker stack runs the backend as several replicas behind an nginx edge, all on one Postgres and
-one Redis. Each concern below is a GitHub label beside `scalability`. This page details the
-[Architecture](../architecture.md#scaling) section of the same name.
+This document details the scaling concerns that [Architecture](../architecture.md#scaling)
+summarizes. The Docker stack runs the backend as several replicas behind an nginx edge, all on one
+Postgres and one Redis. Two concerns follow: **scaling safety**, that it is safe to run more than
+one replica without errors, and **scaling out**, that adding replicas serves more households
+without degrading anyone's experience.
 
 ## Scaling safety
 
-Several replicas of the backend must behave exactly as one would: a replica may start or stop,
-requests may land on any replica in any order, and the person must see the same result as from a
-single process. In particular, a replica must be redeployable while a review runs, with that review
-completing; two answers sent at once for one review must resume it once, and two review starts sent
-at once must both count toward the number of reviews a person may start in a day
-([reviews.md](reviews.md)); and an answer must be held until the run settles
-whichever replica receives it.
+Several replicas of the backend behave as one would: a replica may start or stop, requests may
+land on any replica in any order, and the person sees the same result as from a single process. In
+particular, a replica can be redeployed while a review runs, and that review completes; two answers
+sent at once for one review resume it once; and two review starts sent at once both count toward
+the number of reviews a person may start in a day ([Workers](../workers.md#reviewrunner-runs)).
 
 What a review needs therefore crosses processes: every event is appended to Postgres before it is
 published and a stream replays the log by sequence number ([events.md](events.md)); sign-in is a
 cookie verified on every request; live events travel through Redis; and a paused review belongs to
-no process, so whichever replica receives the answer resumes it from the checkpoint. What is still
-open under this term is tracked in this repo's GitHub issues: the `scalability` label with the
-`scaling-safety` label.
+no process, so whichever replica receives the answer resumes it from the checkpoint.
 
 ## Scaling out
 
-Scaling out, as this page and the `scaling-out` label use the term, is scalability in the classic
-sense: the stack serves more households by adding replicas, and a household's experience, the time
-from a start to the first question and to the report, stays what it is under a light load. The load
-is not even. Most cards' statements close in the first days of a month, so many households start
-their review in the same few days, and that surge must be absorbed rather than refused: a start that
-cannot run at once must wait briefly, survive a restart and run in turn, and the only limit a person
-meets must be the daily limit on starts. What is still open under this term is tracked in this
-repo's GitHub issues: the `scalability` label with the `scaling-out` label.
+Scaling out, as this page uses the term, is scalability in the classic sense: the stack serves more
+households by adding replicas, and a household's experience, the time from a start to the first
+question and to the report, stays what it is under a light load. The load is not even. Most cards'
+statements close in the first days of a month, so many households start their review in the same
+few days. Every start runs at once, in the background of the replica that received it, so the
+capacity to run reviews and the capacity to serve pages grow together, one replica at a time.
+Nothing limits how many reviews run together beyond each person's daily and monthly start limits
+([Workers](../workers.md#reviewrunner-runs)).
 
 ## The edge service
 

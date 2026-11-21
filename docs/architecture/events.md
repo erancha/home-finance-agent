@@ -1,9 +1,10 @@
 # Events and the live stream
 
-Every step of a review is an event, and the React page in the browser renders the review from
-those events alone. Because the events are stored, a reload, a link opened later or a second device
-replays them and shows the review exactly where it stands. This page details the
-[Architecture](../architecture.md#events-and-the-live-stream) section of the same name.
+This document details the events that
+[Architecture](../architecture.md#events-and-the-live-stream) summarizes: the log, the stream and
+the page that renders from it. Every step of a review is an event, and the React page in the
+browser renders the review from those events alone. Because the events are stored, a reload, a link
+opened later or a second device replays them and shows the review exactly where it stands.
 
 ## The log comes first
 
@@ -26,8 +27,8 @@ time it was logged, so a replayed event shows when it happened.
 
 ## The stream
 
-`GET /api/reviews/{id}/events` is a server-sent event stream. It subscribes to the review's live
-channel first, then replays the log, then follows live events, dropping any the replay already
+`GET /api/reviews/{review_id}/events` is a server-sent event stream. It subscribes to the review's
+live channel first, then replays the log, then follows live events, dropping any the replay already
 covered by its sequence number. Each frame's id is that sequence number, so a reconnecting browser
 gets only what followed. A comment line keeps a quiet stream inside the edge's read timeout, and
 the stream ends when the browser leaves or the server shuts down.

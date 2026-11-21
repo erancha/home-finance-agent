@@ -1,10 +1,12 @@
-# Storage
+# Data model
+
+This document details the storage that [Architecture](architecture.md#storage) summarizes: every
+table of the agent's Postgres, its keys and what it holds, and the two memories kept per person.
 
 One Postgres database holds everything the home finance agent keeps: its own tables, and
 LangGraph's checkpoints of each review's graph. Reviews and both memories carry the person's
 Google account id, and events and checkpoints hang off a review, so each person's data is kept
-apart by that one id. This page details the [Architecture](../architecture.md#storage) section
-of the same name.
+apart by that one id.
 
 ## This agent's tables
 

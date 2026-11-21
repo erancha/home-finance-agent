@@ -8,7 +8,8 @@ documentation, and `--help` prints it.
 
 **Contents:** [Working copy location](#working-copy-location) · [Frontend](#frontend) ·
 [Configuration](#configuration) · [Backend tests](#backend-tests) ·
-[Deployment scripts (scripts/)](#deployment-scripts-scripts) · [Addresses](#addresses) ·
+[Deployment scripts (scripts/)](#deployment-scripts-scripts) · [The EC2 stack](#the-ec2-stack) ·
+[Addresses](#addresses) · [Other devices on your network](#other-devices-on-your-network) ·
 [Connecting a card agent](#connecting-a-card-agent) ·
 [Running the agent on the host](#running-the-agent-on-the-host)
 
@@ -48,26 +49,39 @@ every run, and stops with a list of every setting it needs that is still blank.
 Every other setting is committed in [stack-params.sh](../scripts/lib/stack-params.sh): the
 ports, the database name, the EC2 stack's names and the optional keys at their defaults. The
 manager refuses to start while `LLM_MODEL`, `GOOGLE_CLIENT_ID` or `LLM_API_KEY` is blank. An edit
-to any of the three files takes a `deploy.sh` run.
+to any of the three files takes a `deploy.sh` run. A missing or malformed required value stops
+startup with its name, rather than letting the agent run on a default nobody chose.
 
-Beside the settings files, two gitignored files belong to the person running the stack:
+Beside the settings files, two gitignored files belong to the person running the stack.
 
-- `backend/card-agents.yaml` and `backend/card-agents.ec2.yaml` — the card agents the manager
-  calls on this machine and on the EC2 instance, with the secrets they issued to it;
-  `tools/add-card-agent.sh` writes them ([Connecting a card agent](#connecting-a-card-agent)).
-  An empty registry means no card agents: the manager runs and the page says so.
-- `config/budget.yaml` — the monthly limit per category, started from the committed
-  `config/budget.example.yaml`; the image bakes it in, so an edit takes a `deploy.sh` run.
+**The card-agent registry** is `backend/card-agents.yaml` on this machine and
+`backend/card-agents.ec2.yaml` on the EC2 instance, where each card agent's browser address is its
+CloudFront address. `tools/add-card-agent.sh` writes one entry into it per card agent ([Connecting a
+card agent](#connecting-a-card-agent)): the card agent's name, the URL this agent fetches its Agent
+Card from, the URL a person's browser opens its pages at, and the secret the card agent issued to
+this one. The file holds secrets, so the scripts write it readable by its owner alone. Compose hands
+it to the manager as a secret, which it copies into the container at `/run/secrets/card-agents`
+(`CARD_AGENTS_FILE`) when it creates it, from the content the scripts read from the registry file.
+An absent file or an empty list means no card agents: the agent runs and the review page says so. A
+blank field, a URL that is not http(s) or a name listed twice stops startup naming the entry. The
+registry is read at startup, so a change needs a restart.
+
+**The budget**, `config/budget.yaml`, holds the currency and a monthly limit per category. It is
+the person's own and stays out of the repository; `init-env.sh` starts it from
+`config/budget.example.yaml`, which is committed. The manager's image bakes it in, so an edit takes
+a `deploy.sh` run. Every category must come from the shared category list the card agents
+categorize against; an unknown one stops startup instead of quietly totalling to zero.
 
 A script that loads a settings file first stops if git would track it, or a tracked file holds
 one of its secrets or email addresses, the license contact of `params.sh` excepted. It also
 sets `core.hooksPath` to `.githooks`, whose `pre-commit` hook makes the same check on every
 commit's staged changes.
 
-The scripts export the three files into their shell before calling Compose, so a bare
-`docker compose` call has no settings. The files hold the host form of `DATABASE_URL`; Compose
-overrides it with the in-network address. Host commands (pytest, uvicorn) run from the repo
-root, because the manager reads the settings files by their path from the working directory.
+The scripts export the three files into their shell before calling Compose, so a bare `docker
+compose` call has no settings; Compose hands each container only the keys it reads. The files hold
+the host form of `DATABASE_URL`; Compose overrides it with the in-network address. Host commands
+(pytest, uvicorn) run from the repo root, because the manager reads the settings files by their path
+from the working directory.
 
 ## Backend tests
 
@@ -97,21 +111,12 @@ Docker runs the stack; `deploy.sh` and `docker-helper.sh` stop when it is not re
   manager answers through the edge. It prints this agent's Google client id, which a card agent's
   operator registers it as a caller with. Then open http://localhost:8010 and sign in with a
   Google account listed as a test user.
-- `deploy.sh --ec2` — deploys to an EC2 instance in the account of `aws-config.sh`. The stack is a
-  host, with an instance of its own, while `EC2_HOST_STACK` of `params.sh` is blank. Set to another
-  Docker Compose repo's host stack, it is a guest on that instance, which is deployed first from its
-  repo; `aws-config.sh` then names that stack's account and region, since a guest's stacks import
-  the host stack's exports ([ADR 0008](adr/0008-any-docker-repo-can-host-the-instance.md)). It needs
+- `deploy.sh --ec2` — deploys to an EC2 instance in the account of `aws-config.sh`, and needs
   the AWS CLI, `ssh` and `curl`. It creates or updates this repo's CloudFormation stack of
-  [`template-ec2.yaml`](../scripts/template-ec2.yaml) (the edge's port on the instance and a
-  CloudFront distribution), builds the images here for ARM, loads them into the instance's Docker
-  daemon over SSH and starts the stack there with
-  [`docker-compose.ec2.yml`](../docker-compose.ec2.yml), and prints the CloudFront address to open
-  and to register with Google ([Sign-in](sign-in.md#setting-up-google)). The git branch selects the
-  stack: `main` deploys `home-finance-agent`, any other branch `home-finance-agent-fb`, a guest on
-  the host's `-fb` instance; an exported `STACK_NAME` wins. Every deploy, host or guest, also makes
-  sure the instance has a 1 GB swap file (`prepare_ec2_host` in `lib/ec2.sh`), so a burst beyond the
-  instance's 2 GB of memory slows the stacks instead of killing a container.
+  [`template-ec2.yaml`](../scripts/template-ec2.yaml), builds the images here for ARM, loads them
+  into the instance's Docker daemon over SSH and starts the stack there, and prints the
+  CloudFront address to open and to register with Google ([Sign-in](sign-in.md#setting-up-google)).
+  [The EC2 stack](#the-ec2-stack) covers what it deploys.
 - [`docker-helper.sh`](../scripts/docker-helper.sh) — `--stop [--volumes]`,
   `--logs [-e] [service...]` or `--ps` for the stack; `--volumes` also removes the database.
   With `--ec2` as its first argument it acts on the instance, and `--ec2 --delete-stack`
@@ -135,11 +140,26 @@ the EC2 target: the stack's deploy, the SSH connection with an EC2 Instance Conn
 Compose pointed at the instance's Docker daemon. Both, the template and the pre-commit hook are
 the same files in every Docker Compose repo.
 
+## The EC2 stack
+
+`./scripts/deploy.sh --ec2` runs the same Compose stack on an EC2 instance behind a CloudFront
+distribution of its own. The stack is a host, with an instance of its own, while
+`EC2_HOST_STACK` of `params.sh` is blank. Set to another Docker Compose repo's host stack, it is a
+guest on that instance, which is deployed first from its repo; `aws-config.sh` then names that
+stack's account and region, since a guest's stacks import the host stack's exports
+([ADR 0008](adr/0008-any-docker-repo-can-host-the-instance.md)). This repo's CloudFormation stack
+holds the edge's port on the instance and a CloudFront distribution, and the stack starts there
+with [`docker-compose.ec2.yml`](../docker-compose.ec2.yml). The git branch selects the stack:
+`main` deploys `home-finance-agent`, any other branch `home-finance-agent-fb`, a guest on the
+host's `-fb` instance; an exported `STACK_NAME` wins. Every deploy, host or guest, also makes sure
+the instance has a 1 GB swap file (`prepare_ec2_host` in `lib/ec2.sh`), so a burst beyond the
+instance's 2 GB of memory slows the stacks instead of killing a container.
+
 Compose runs on this machine against the instance's daemon, so nothing in the stack is
 bind-mounted from this machine: the edge's `nginx/default.conf` is baked into a small image of
 its own, the budget into the manager's image, and the registry reaches the manager as a Compose
-secret whose content the scripts read from the registry file and Compose copies into the
-container when it creates it. `docker-compose.ec2.yml` names the instance's registry for it.
+secret ([Configuration](#configuration)). `docker-compose.ec2.yml` names the instance's registry
+for it.
 
 `docker-helper.sh --ec2 --delete-stack` deletes this repo's EC2 stack after asking for its name:
 its port on the instance and its distribution. Its containers and the database volume stay on
@@ -169,6 +189,20 @@ new `EDGE_HOST_PORT` needs the same change in the Google client's authorized Jav
 ([Sign-in](sign-in.md#setting-up-google)). On the EC2 instance the edge is published at
 `EC2_ORIGIN_PORT`, the same port, where only CloudFront reaches it.
 
+## Other devices on your network
+
+The agent listens on every interface, so any browser on the network reaches the page at this
+machine's address. Reaching it is not using it: every review route needs the sign-in cookie, and
+Google signs in only a page served from `localhost` or a public hostname, never a private address.
+Another device therefore sees the sign-in button and cannot get past it until the stack is reached
+through a hostname registered with both agents' Google clients, such as the CloudFront address of
+the EC2 deployment. For another device to follow a card agent's statement link, register the card
+agent with this machine's address as its browser URL. Postgres stays on `127.0.0.1:5434`.
+
+On Windows with WSL2, the Docker stack needs nothing more, since Docker Desktop publishes the port
+on the Windows side. An agent started on the host inside WSL2 is reachable from other devices only
+with WSL's mirrored networking mode.
+
 ## Connecting a card agent
 
 The card agent's operator deploys it from its own repo and registers this agent as a caller with
@@ -189,11 +223,11 @@ agent transmits them. Each goes into one flag:
 ./scripts/deploy.sh      # the manager reads the registry at startup
 ```
 
-The manager calls the URL a card agent's card advertises, which must be reachable from the
-manager's container: a card agent on the same machine is `http://host.docker.internal:<port>`.
-On the EC2 instance the card agents run beside this stack and keep that address, but a person's
-browser opens their pages at their CloudFront addresses, which their own `deploy.sh --ec2`
-prints. The instance's registry holds those, written with `--ec2` first:
+The manager calls the URL a card agent's Agent Card advertises, not the one it fetched the card
+from, so both must be reachable from the manager's container: a card agent on the same machine is
+`http://host.docker.internal:<port>`. On the EC2 instance the card agents run beside this stack and
+keep that address, but a person's browser opens their pages at their CloudFront addresses, which
+their own `deploy.sh --ec2` prints. The instance's registry holds those, written with `--ec2` first:
 
 ```bash
 ./scripts/tools/add-card-agent.sh --ec2 --name amex --url http://host.docker.internal:8020 \

@@ -1,7 +1,12 @@
-# Codebase structure
+# Design patterns
 
-This page details the [Architecture](../architecture.md#codebase-structure) section of the same
-name. One package, `hfm`, under `backend/src`, in layers:
+This document details the shapes the code repeats behind
+[Architecture](architecture.md#codebase-structure): how the backend package is layered and how
+the layering is enforced.
+
+## Layers whose imports point inwards
+
+One package, `hfm`, under `backend/src`, in layers:
 
 | Layer | Holds | Modules |
 |---|---|---|

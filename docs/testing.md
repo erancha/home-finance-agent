@@ -20,7 +20,8 @@ them through the same code path the running agent uses.
 ## Backend
 
 **Static gates** fail the run before any test: ruff, mypy, and the import-linter contracts that
-keep the layers pointing inwards ([codebase-structure.md](architecture/codebase-structure.md)).
+keep the layers pointing inwards
+([Design patterns](design-patterns.md#layers-whose-imports-point-inwards)).
 The scripts' syntax is checked with `bash -n`, and shell tests check the scripts an operator runs:
 the settings files and registries are created owner-readable with a generated database password,
 a blank setting is named with its file, the registry is replaced by name in the file of the
@@ -54,6 +55,10 @@ replica. Its startup leaves the first one's running review alone. Answers sent t
 resume a review once; starts sent to both at once stay within the daily limit. The event-stream
 tests check that replay and live events arrive once each, and run real uvicorn to prove a shutdown
 signal ends open streams.
+
+**The API document** is checked against the router: `tests/platform/api/test_api_doc.py` reads
+every route the app declares and fails, naming the route, when [API endpoints](api.md) leaves one
+out or names one the app does not declare.
 
 **Database restarts** are simulated by terminating every server connection; the checkpointer and the
 repositories must read again without a restart of the agent. A migration test proves the checkpoint

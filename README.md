@@ -73,8 +73,8 @@ flowchart LR
   M -->|same contract| B[cal-agent]
 ```
 
-**[Architecture](docs/architecture.md)** continues from here: the full diagram, the boundaries
-between this agent and the card agents, and a page per subsystem.
+**[Architecture](docs/architecture.md)** continues from here: the full diagram, the Compose
+services, the boundaries between this agent and the card agents, and a section per subsystem.
 
 ## Getting started
 
@@ -125,13 +125,23 @@ such as connecting a card agent, are in [scripts/tools/](scripts/tools/README.md
 
 ## Details
 
-- [Architecture](docs/architecture.md) — the parts, the boundaries and a page per subsystem
+- [Architecture](docs/architecture.md) — the Compose services, the boundaries with the card
+  agents, the subsystems, the edge on EC2, storage and the codebase
+- [API endpoints](docs/api.md) — every route of the backend, who may call it and what it answers
+- [Workers' responsibilities and flows](docs/workers.md) — the review runs and the schema
+  migration
+- [Reviews](docs/architecture/reviews.md) — the review graph, its steps and why it is shaped so
+- [Events and the live stream](docs/architecture/events.md) — the event log, the stream and the
+  page that renders from it
+- [Scaling](docs/architecture/scaling.md) — what running several replicas requires, and the edge
+- [Design patterns](docs/design-patterns.md) — the backend's layers and how they are enforced
+- [Data model](docs/data-model.md) — every table, its keys, and the two memories
 - [A2A contract](docs/a2a-contract.md) — the `monthly-transactions` skill every card agent offers
-- [Sign-in](docs/sign-in.md) — how one Google sign-in spans the agents, and the Google setup
 - [Connecting agents](docs/connecting-agents.md) — both operators' sessions, in order
 - [Why A2A](docs/why-a2a.md) — what the protocol adds here, and what it does not
-- [Development & deployment](docs/development.md) — the settings, the tests, the scripts and
-  the EC2 deployment
+- [Sign-in](docs/sign-in.md) — how one Google sign-in spans the agents, and the Google setup
+- [Development & deployment](docs/development.md) — the settings, the tests, the scripts, the
+  EC2 stack and the addresses
 - [Testing](docs/testing.md) — what each test layer proves
 - [ADRs](docs/adr/) — the founding decisions, one record each, with their reasons
 
