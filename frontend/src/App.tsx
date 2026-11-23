@@ -1,6 +1,6 @@
-import { GoogleSignIn } from './auth/GoogleSignIn.tsx'
 import { SessionHeader } from './auth/SessionHeader.tsx'
 import { useSession } from './auth/useSession.ts'
+import { Landing } from './features/landing/Landing.tsx'
 import { ReviewPage } from './features/review/ReviewPage.tsx'
 
 /** The review page is reached only signed in; the month stays in the URL across a sign-in. */
@@ -20,13 +20,7 @@ export function App() {
         </main>
       )
     case 'signed-out':
-      return (
-        <main>
-          <h1>Monthly card review</h1>
-          <p>Sign in with your Google account to review your card months.</p>
-          <GoogleSignIn onSignedIn={signedIn} />
-        </main>
-      )
+      return <Landing onSignedIn={signedIn} />
     case 'signed-in':
       return (
         <>

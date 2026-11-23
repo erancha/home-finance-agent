@@ -103,7 +103,11 @@ flowchart TB
 **¹ Google is the only identity.** Each agent has its own OAuth client in its own Google Cloud
 project, so the two share nothing by default; two projects under one Google account stand in for two
 operators. A person signs in to each page with the same Google account. The stable Google account id
-is the user id in both agents. No registration step, no stored passwords.
+is the user id in both agents. No registration step, no stored passwords. Signed out, the home
+finance agent opens on a landing card that pitches the agent over a "Sign in with Google" button
+drawn like every landing page of these apps. Google's own button lies over it, transparent and
+stretched to its size, so the click is Google's. Under the button, a "Why sign in with Google?"
+toggle explains why signing in with Google is safe and links to Google's own help page.
 
 **² Every token is verified locally, the same way everywhere.** Both agents fetch and cache the
 public keys Google publishes and check each token's signature, issuer, expiry and audience. The

@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as auth from './api/auth.ts'
@@ -47,6 +47,88 @@ describe('App', () => {
     expect(auth.signIn).toHaveBeenCalledExactlyOnceWith(FakeGoogleIdentity.credential)
     expect(await screen.findByText('the review page')).toBeInTheDocument()
     expect(window.location.search).toBe('?month=2026-09')
+  })
+
+  it("lays Google's button over the landing card's shared sign-in button", async () => {
+    vi.mocked(auth.me).mockRejectedValue(notSignedIn)
+    const { container } = render(<App />)
+
+    const google = await screen.findByRole('button', { name: 'Sign in with Google' })
+    const area = container.querySelector('main.landing > .landing-card > .sign-in') as HTMLElement
+    const shared = area.querySelector(':scope > button.sign-in-button') as HTMLElement
+    expect(shared).toHaveTextContent('GSign in with Google')
+    // The shared button only shows; Google's own button, laid over it, takes the click.
+    expect(shared).toHaveAttribute('aria-hidden', 'true')
+    expect(shared).toHaveAttribute('tabindex', '-1')
+    expect(google.closest('.sign-in-google')?.previousElementSibling).toBe(shared)
+  })
+
+  it('heads the signed-out card with the icon, the product name and the tagline', async () => {
+    vi.mocked(auth.me).mockRejectedValue(notSignedIn)
+    const { container } = render(<App />)
+
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Home Finance Agent' })
+    expect(heading.querySelector('img.app-icon')).toHaveAttribute('src', '/favicon.svg')
+    expect(screen.getByText('An AI agent that reviews your monthly card spending')).toHaveClass(
+      'app-tagline',
+    )
+    // The build makes no stamp, so no line names the build.
+    expect(container.querySelector('.app-version')).toBeNull()
+    expect(container.querySelectorAll('.landing-pitch')).toHaveLength(2)
+    expect(container.querySelectorAll('.landing-steps > li')).toHaveLength(3)
+    expect(container.querySelectorAll('.landing-steps > li')[2]).toHaveTextContent(
+      /^Read the summary: a pie of spending by category/,
+    )
+  })
+
+  it('adds the details under the pitch from the More toggle', async () => {
+    vi.mocked(auth.me).mockRejectedValue(notSignedIn)
+    const user = userEvent.setup()
+    const { container } = render(<App />)
+
+    const more = await screen.findByRole('button', { name: 'More' })
+    expect(more).toHaveAttribute('aria-expanded', 'false')
+    expect(container.querySelector('.landing-card > .landing-details')).toBeNull()
+    await user.click(more)
+
+    const less = screen.getByRole('button', { name: 'Less' })
+    expect(less).toHaveAttribute('aria-expanded', 'true')
+    const details = container.querySelector('.landing-card > .landing-details') as HTMLElement
+    expect(details.nextElementSibling).toBe(less)
+    expect(within(details).getByText(/never guessed/)).toBeInTheDocument()
+  })
+
+  it('opening the sign-in explanation folds the details back', async () => {
+    vi.mocked(auth.me).mockRejectedValue(notSignedIn)
+    render(<App />)
+    const more = await screen.findByRole('button', { name: 'More' })
+    fireEvent.click(more)
+    fireEvent.click(document.querySelector('.sign-in-why') as HTMLElement)
+    expect(document.querySelector('.landing-card > .landing-details')).toBeNull()
+    expect(more).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('links under the card to the WhatsApp invite and the source, with no demo', async () => {
+    vi.mocked(auth.me).mockRejectedValue(notSignedIn)
+    const { container } = render(<App />)
+    await screen.findByRole('heading', { level: 1 })
+
+    const footer = container.querySelector('main.landing > footer.landing-links') as HTMLElement
+    const [invite, source, ...rest] = within(footer).getAllByRole('link')
+    expect(rest).toHaveLength(0)
+    expect(invite).toHaveAccessibleName('Invite friends on WhatsApp')
+    expect(invite.querySelector('.link-mark')).toHaveTextContent('💬')
+    expect(invite).toHaveAttribute('target', '_blank')
+    expect(invite).toHaveAttribute('rel', 'noreferrer')
+    const url = new URL(invite.getAttribute('href') as string)
+    expect(`${url.origin}${url.pathname}`).toBe('https://wa.me/')
+    const paragraphs = (url.searchParams.get('text') as string).split('\n\n')
+    expect(paragraphs[0]).toMatch(/^Hi! 👋 I got a recommendation for Home Finance Agent/)
+    expect(paragraphs[paragraphs.length - 1]).toMatch(new RegExp(`\n${window.location.origin}$`))
+    expect(source).toHaveAccessibleName('Source code on GitHub')
+    expect(source).toHaveAttribute('href', 'https://github.com/erancha/home-finance-agent')
+    expect(source).toHaveAttribute('target', '_blank')
+    expect(source).toHaveAttribute('rel', 'noreferrer')
   })
 
   it('shows why a sign-in was refused', async () => {

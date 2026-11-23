@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { RefObject } from 'react'
 import { getAuthConfig, signIn } from '../api/auth.ts'
 import type { User } from '../api/types.ts'
 import { loadGoogleIdentity } from './google.ts'
@@ -14,11 +15,15 @@ function errorText(error: unknown): string {
 }
 
 /**
- * Google's own button, rendered into a slot once the client id and the Google script are in; the
- * credential it produces is posted to the server, which answers with the session cookie.
+ * Renders Google's own button into slot once the client id and the Google script are in; the
+ * credential it produces is posted to the server, which answers with the session cookie. Returns
+ * why that failed, if it did.
  */
-export function GoogleSignIn({ onSignedIn, text = 'signin_with' }: Props) {
-  const slot = useRef<HTMLDivElement>(null)
+export function useGoogleButton(
+  slot: RefObject<HTMLDivElement | null>,
+  onSignedIn: (user: User) => void,
+  text: NonNullable<Props['text']> = 'signin_with',
+): string | null {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -41,7 +46,15 @@ export function GoogleSignIn({ onSignedIn, text = 'signin_with' }: Props) {
     return () => {
       current = false
     }
-  }, [onSignedIn, text])
+  }, [slot, onSignedIn, text])
+
+  return error
+}
+
+/** Google's own button where it stands alone, with the reason a sign-in failed under it. */
+export function GoogleSignIn({ onSignedIn, text }: Props) {
+  const slot = useRef<HTMLDivElement>(null)
+  const error = useGoogleButton(slot, onSignedIn, text)
 
   return (
     <div className="sign-in">

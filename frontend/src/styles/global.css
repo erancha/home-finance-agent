@@ -1,3 +1,23 @@
+@import "./landing.css";
+
+/* The landing page under this app's own rules: main.landing is a fixed full-screen layer, not
+   the page column, and its buttons take landing.css's spacing rather than the app's button
+   margin. No build line follows the tagline, so the tagline keeps the gap to the pitch that the
+   build line's own margin gives in landing.css. */
+.landing { max-width: none; margin: 0; }
+.landing button { margin: 0; }
+.landing .landing-card .app-tagline { margin-block-end: 20px; }
+/* Google's own button lies over the shared sign-in button, transparent; SignInButton sizes the
+   layer to the shared button and scales Google's button to fill it. The shared button shows the
+   hover and the keyboard focus that Google's button receives. */
+.landing .sign-in { position: relative; }
+.landing .sign-in-google { position: absolute; overflow: hidden; opacity: 0; }
+.landing .sign-in-google > div { width: max-content; transform-origin: top left; }
+.landing .sign-in:has(.sign-in-google:hover) .sign-in-button { filter: brightness(0.93); }
+.landing .sign-in:has(.sign-in-google:focus-within) .sign-in-button {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
 :root {
   --bg: #fafafa;
   --fg: #1d1d1f;

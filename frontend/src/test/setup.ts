@@ -32,3 +32,6 @@ class ResizeObserverStub {
   disconnect() {}
 }
 globalThis.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver
+
+// jsdom has no layout, so it has no scrollIntoView; a test that checks a scroll spies on this no-op.
+Element.prototype.scrollIntoView = () => {}
