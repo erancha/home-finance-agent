@@ -39,7 +39,7 @@ export function Landing({ onSignedIn }: { onSignedIn: (user: User) => void }) {
           <img className="app-icon" src="/favicon.svg" alt="" /> {APP_TITLE}
         </h1>
         {/* A sibling of the heading, so the heading's accessible name stays the bare title. */}
-        <p className="app-tagline">{APP_TAGLINE}</p>
+        <p className="app-tagline landing-flash">{APP_TAGLINE}</p>
         {LANDING_LEAD.map((line) => (
           <p key={line} className="landing-pitch">
             {withBold(line)}
@@ -63,7 +63,7 @@ export function Landing({ onSignedIn }: { onSignedIn: (user: User) => void }) {
         )}
         <button
           type="button"
-          className="landing-more"
+          className="landing-more landing-flash"
           aria-expanded={expanded}
           onClick={() => setExpanded(!expanded)}
         >
