@@ -3,7 +3,7 @@
 /** The product's name, as the tab's title and the card's heading name it. */
 export const APP_TITLE = 'Home Finance Agent'
 /** The line under the title: what the agent does, in one line. */
-export const APP_TAGLINE = 'An AI agent that reviews your monthly card spending'
+export const APP_TAGLINE = 'Card spending, reviewed by AI'
 
 /** The pitch's opening lines: the question a person brings, then how little the agent asks. */
 export const LANDING_LEAD = [

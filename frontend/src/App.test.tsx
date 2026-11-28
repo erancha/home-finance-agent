@@ -69,7 +69,7 @@ describe('App', () => {
 
     const heading = await screen.findByRole('heading', { level: 1, name: 'Home Finance Agent' })
     expect(heading.querySelector('img.app-icon')).toHaveAttribute('src', '/favicon.svg')
-    expect(screen.getByText('An AI agent that reviews your monthly card spending')).toHaveClass(
+    expect(screen.getByText('Card spending, reviewed by AI')).toHaveClass(
       'app-tagline',
     )
     // The build makes no stamp, so no line names the build.
