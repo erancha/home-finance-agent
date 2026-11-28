@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from jwt import PyJWKClient
 
 from hfm.adapters.google_tokens import (
+    CLOCK_SKEW_SECONDS,
     GOOGLE_ISSUER,
     GoogleTokenVerifier,
     JwksKeys,
@@ -41,6 +42,11 @@ def test_email_and_name_are_optional() -> None:
     assert verifier().verify(bare).user == User("1001", None, None)
 
 
+def test_a_token_issued_moments_ahead_of_this_clock_is_accepted() -> None:
+    ahead = int(time.time()) + CLOCK_SKEW_SECONDS // 2
+    assert verifier().verify(sign(iat=ahead)).user.id == "1001"
+
+
 def test_google_bare_issuer_form_is_accepted_for_google_only() -> None:
     assert verifier().verify(sign(iss="accounts.google.com")).user.id == "1001"
     with pytest.raises(InvalidTokenError, match="not issued by hfm-e2e"):
@@ -50,7 +56,7 @@ def test_google_bare_issuer_form_is_accepted_for_google_only() -> None:
 @pytest.mark.parametrize(
     ("claims", "reason"),
     [
-        ({"exp": int(time.time()) - 1}, "expired"),
+        ({"exp": int(time.time()) - CLOCK_SKEW_SECONDS - 1}, "expired"),
         ({"aud": "other-client"}, "another application"),
         ({"iss": "https://evil.example"}, "not issued by"),
     ],
